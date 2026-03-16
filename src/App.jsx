@@ -1562,6 +1562,8 @@ function StitchTab({ combos, validationStore, preHooks, hooks, leads, bodies, ct
         ffmpegRef.current = new FFmpeg();
       }
       const ffmpeg = ffmpegRef.current;
+      const ffmpegLogs = [];
+      ffmpeg.on("log", ({ message }) => { ffmpegLogs.push(message); });
       if (!ffmpegLoaded) {
         const { toBlobURL } = await import("@ffmpeg/util");
         const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.9/dist/esm";
@@ -1588,33 +1590,34 @@ function StitchTab({ combos, validationStore, preHooks, hooks, leads, bodies, ct
         fileNames.push(fname);
       }
 
-      // Pass 1: normalize each segment — fix dimensions and add silence if no audio
+      // Pass 1: normalize each segment to a consistent format
       setStatus("normalizing");
       const normalizedNames = [];
       for (let i = 0; i < fileNames.length; i++) {
         const fname = fileNames[i];
         const normName = `norm_${i}.mp4`;
-        // Try with the clip's own audio first
+        // Scale to consistent size (preserve aspect ratio, pad to 1080x1920), force 30fps, yuv420p
+        const vf = "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,fps=30,format=yuv420p";
         let r = await ffmpeg.exec([
           "-i", fname,
-          "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
-          "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+          "-vf", vf,
+          "-c:v", "libx264", "-preset", "ultrafast",
           "-map", "0:v:0", "-map", "0:a:0",
           "-c:a", "aac", "-ar", "44100", "-ac", "2",
           normName
         ]);
         if (r !== 0) {
-          // No audio track — add silence
+          // Retry without audio (add silence)
           r = await ffmpeg.exec([
             "-i", fname,
             "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
-            "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
-            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+            "-vf", vf,
+            "-c:v", "libx264", "-preset", "ultrafast",
             "-map", "0:v:0", "-map", "1:a",
             "-c:a", "aac", "-ar", "44100", "-ac", "2",
             "-shortest", normName
           ]);
-          if (r !== 0) throw new Error(`Could not normalize segment ${i + 1} (${fname}). The file may be corrupted.`);
+          if (r !== 0) throw new Error(`Could not normalize segment ${i + 1}. FFmpeg log:\n${ffmpegLogs.slice(-10).join("\n")}`);
         }
         normalizedNames.push(normName);
       }
@@ -1633,7 +1636,7 @@ function StitchTab({ combos, validationStore, preHooks, hooks, leads, bodies, ct
         "-movflags", "+faststart",
         "out.mp4"
       ]);
-      if (ret !== 0) throw new Error(`FFmpeg concat failed with code ${ret}.`);
+      if (ret !== 0) throw new Error(`FFmpeg concat failed with code ${ret}.\n${ffmpegLogs.slice(-10).join("\n")}`);
       for (const f of normalizedNames) { try { await ffmpeg.deleteFile(f); } catch {} }
 
       const data = await ffmpeg.readFile("out.mp4");
