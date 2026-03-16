@@ -1627,21 +1627,18 @@ function StitchTab({ combos, validationStore, preHooks, hooks, leads, bodies, ct
         normalizedNames.push(normName);
       }
 
-      // Pass 2: concat all normalized segments
+      // Pass 2: concat using demuxer (stream copy — fast, no re-encode needed)
       setStatus("stitching");
-      const inputs = normalizedNames.flatMap(f => ["-i", f]);
-      const filterStr = normalizedNames.map((_, i) => `[${i}:v][${i}:a]`).join("") + `concat=n=${normalizedNames.length}:v=1:a=1[v][a]`;
+      const listContent = normalizedNames.map(f => `file '${f}'`).join("\n");
+      await ffmpeg.writeFile("concat_list.txt", listContent);
       const ret = await ffmpeg.exec([
-        ...inputs,
-        "-filter_complex", filterStr,
-        "-map", "[v]", "-map", "[a]",
-        "-c:v", "libx264", "-preset", "fast",
-        "-profile:v", "main", "-pix_fmt", "yuv420p",
-        "-c:a", "aac",
+        "-f", "concat", "-safe", "0", "-i", "concat_list.txt",
+        "-c", "copy",
         "-movflags", "+faststart",
         "out.mp4"
       ]);
       if (ret !== 0) throw new Error(`FFmpeg concat failed with code ${ret}.\n${ffmpegLogs.slice(-10).join("\n")}`);
+      try { await ffmpeg.deleteFile("concat_list.txt"); } catch {}
       for (const f of normalizedNames) { try { await ffmpeg.deleteFile(f); } catch {} }
 
       const data = await ffmpeg.readFile("out.mp4");
