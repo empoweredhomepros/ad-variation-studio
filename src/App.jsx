@@ -1591,7 +1591,7 @@ function StitchTab({ combos, validationStore, preHooks, hooks, leads, bodies, ct
       setStatus("stitching");
       const inputs = fileNames.flatMap(f => ["-i", f]);
       const filterStr = fileNames.map((_, i) => `[${i}:v][${i}:a]`).join("") + `concat=n=${fileNames.length}:v=1:a=1[v][a]`;
-      await ffmpeg.exec([
+      const ret = await ffmpeg.exec([
         ...inputs,
         "-filter_complex", filterStr,
         "-map", "[v]", "-map", "[a]",
@@ -1601,9 +1601,10 @@ function StitchTab({ combos, validationStore, preHooks, hooks, leads, bodies, ct
         "-movflags", "+faststart",
         "out.mp4"
       ]);
+      if (ret !== 0) throw new Error(`FFmpeg exited with code ${ret}. Check that all clips have both video and audio tracks.`);
 
       const data = await ffmpeg.readFile("out.mp4");
-      const blob = new Blob([data.buffer], { type: "video/mp4" });
+      const blob = new Blob([data], { type: "video/mp4" });
       const url = URL.createObjectURL(blob);
       setOutputUrl(url);
       setOutputFilename((selectedCombo.filename || selectedCombo.autoFilename || "stitched") + ".mp4");
