@@ -1596,7 +1596,9 @@ function StitchTab({ combos, validationStore, preHooks, hooks, leads, bodies, ct
         "-filter_complex", filterStr,
         "-map", "[v]", "-map", "[a]",
         "-c:v", "libx264", "-preset", "fast",
+        "-profile:v", "main", "-pix_fmt", "yuv420p",
         "-c:a", "aac",
+        "-movflags", "+faststart",
         "out.mp4"
       ]);
 
