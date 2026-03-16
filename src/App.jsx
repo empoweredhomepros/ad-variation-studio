@@ -1542,7 +1542,7 @@ function StitchTab({ combos, validationStore, preHooks, hooks, leads, bodies, ct
     return slots;
   }, [selectedCombo]);
 
-  const filesReady = segmentSlots.filter(s => uploadedFiles[s.id]).length;
+  const filesReady = segmentSlots.filter(s => uploadedFiles[s.id] || assetMap[s.id]?.driveUrl).length;
   const filesTotal = segmentSlots.length;
   const allReady = filesReady === filesTotal && filesTotal > 0;
 
@@ -1577,8 +1577,14 @@ function StitchTab({ combos, validationStore, preHooks, hooks, leads, bodies, ct
       const fileNames = [];
       for (const slot of segmentSlots) {
         const file = uploadedFiles[slot.id];
+        const asset = assetMap[slot.id];
         const fname = `${slot.id}.mp4`;
-        await ffmpeg.writeFile(fname, await fetchFile(file));
+        if (file) {
+          await ffmpeg.writeFile(fname, await fetchFile(file));
+        } else if (asset?.driveUrl) {
+          const proxyUrl = `/api/proxy?url=${encodeURIComponent(asset.driveUrl)}`;
+          await ffmpeg.writeFile(fname, await fetchFile(proxyUrl));
+        }
         fileNames.push(fname);
       }
 
@@ -1621,7 +1627,7 @@ function StitchTab({ combos, validationStore, preHooks, hooks, leads, bodies, ct
     setOutputFilename("");
   };
 
-  const statusLabel = { loading: "Loading FFmpeg (one-time ~10 MB download)…", writing: "Writing segment files…", stitching: "Stitching clips together…" }[status] || null;
+  const statusLabel = { loading: "Loading FFmpeg (one-time ~10 MB download)…", writing: "Fetching clips & writing segment files…", stitching: "Stitching clips together…" }[status] || null;
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -1664,7 +1670,7 @@ function StitchTab({ combos, validationStore, preHooks, hooks, leads, bodies, ct
           {selectedCombo && (
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-4">
               <div className="flex items-center justify-between">
-                <label className="text-xs text-zinc-400 uppercase tracking-widest font-semibold">Upload segment files — in order</label>
+                <label className="text-xs text-zinc-400 uppercase tracking-widest font-semibold">Segment files — Drive URLs auto-fetched</label>
                 <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${allReady ? "bg-emerald-500/20 text-emerald-400" : "bg-zinc-800 text-zinc-500"}`}>
                   {filesReady}/{filesTotal} ready
                 </span>
@@ -1683,14 +1689,22 @@ function StitchTab({ combos, validationStore, preHooks, hooks, leads, bodies, ct
                           {asset?.descriptor && <span className="text-xs text-zinc-600 italic truncate">"{asset.descriptor}"</span>}
                         </div>
                         <div className="flex items-center gap-2 ml-auto shrink-0">
-                          {asset?.videoFileName && !file && (
-                            <span className="text-xs text-zinc-600 italic truncate max-w-28" title={asset.videoFileName}>{asset.videoFileName}</span>
-                          )}
                           {file ? (
                             <div className="flex items-center gap-2">
                               <span className="text-xs text-emerald-400 font-medium truncate max-w-36" title={file.name}>✓ {file.name}</span>
                               <button onClick={() => setUploadedFiles(prev => { const n = {...prev}; delete n[slot.id]; return n; })}
                                 className="text-zinc-600 hover:text-red-400 text-sm leading-none shrink-0">✕</button>
+                            </div>
+                          ) : asset?.driveUrl ? (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-emerald-400 font-medium">🔗 Drive linked</span>
+                              <label className="cursor-pointer">
+                                <span className="px-2 py-1 bg-zinc-800 border border-zinc-700 hover:border-zinc-500 text-zinc-500 text-xs rounded-lg transition-colors inline-block whitespace-nowrap">
+                                  Override…
+                                </span>
+                                <input type="file" accept="video/mp4,video/quicktime,.mp4,.mov" className="hidden"
+                                  onChange={e => handleFileChange(slot.id, e.target.files?.[0] || null)} />
+                              </label>
                             </div>
                           ) : (
                             <label className="cursor-pointer">
