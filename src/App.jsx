@@ -1585,7 +1585,12 @@ function StitchTab({ combos, validationStore, preHooks, hooks, leads, bodies, ct
           await ffmpeg.writeFile(fname, await fetchFile(file));
         } else if (asset?.driveUrl) {
           const proxyUrl = `/api/proxy?url=${encodeURIComponent(asset.driveUrl)}`;
-          await ffmpeg.writeFile(fname, await fetchFile(proxyUrl));
+          const resp = await fetch(proxyUrl);
+          if (!resp.ok) throw new Error(`Failed to download ${slot.id}: HTTP ${resp.status}`);
+          const ct = resp.headers.get("content-type") || "";
+          if (ct.includes("text/html")) throw new Error(`Google Drive returned an HTML page for ${slot.id} instead of a video. Check the sharing link is set to "Anyone with the link".`);
+          const buf = await resp.arrayBuffer();
+          await ffmpeg.writeFile(fname, new Uint8Array(buf));
         }
         fileNames.push(fname);
       }
