@@ -1588,11 +1588,17 @@ function StitchTab({ combos, validationStore, preHooks, hooks, leads, bodies, ct
         fileNames.push(fname);
       }
 
-      const concatList = fileNames.map(f => `file '${f}'`).join("\n");
-      await ffmpeg.writeFile("list.txt", concatList);
-
       setStatus("stitching");
-      await ffmpeg.exec(["-f", "concat", "-safe", "0", "-i", "list.txt", "-c", "copy", "out.mp4"]);
+      const inputs = fileNames.flatMap(f => ["-i", f]);
+      const filterStr = fileNames.map((_, i) => `[${i}:v][${i}:a]`).join("") + `concat=n=${fileNames.length}:v=1:a=1[v][a]`;
+      await ffmpeg.exec([
+        ...inputs,
+        "-filter_complex", filterStr,
+        "-map", "[v]", "-map", "[a]",
+        "-c:v", "libx264", "-preset", "fast",
+        "-c:a", "aac",
+        "out.mp4"
+      ]);
 
       const data = await ffmpeg.readFile("out.mp4");
       const blob = new Blob([data.buffer], { type: "video/mp4" });
