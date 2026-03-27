@@ -145,7 +145,24 @@ function ProgressRing({ done, total, combos, validationStore, locked }) {
   );
 }
 
-function AssetRow({ item, onDelete, onUpdate, validMark }) {
+function SpeakerCombobox({ value, onChange, speakers, datalistId }) {
+  return (
+    <>
+      <input
+        list={datalistId}
+        value={value||""}
+        onChange={e=>onChange(e.target.value)}
+        placeholder="Speaker name (optional)"
+        className="w-full bg-zinc-900 border border-zinc-600 rounded px-2 py-1.5 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-amber-500"
+      />
+      <datalist id={datalistId}>
+        {(speakers||[]).map(s=><option key={s.id} value={s.name}/>)}
+      </datalist>
+    </>
+  );
+}
+
+function AssetRow({ item, onDelete, onUpdate, validMark, speakers }) {
   const [editing,setEditing]=useState(false);
   const [draft,setDraft]=useState(item);
   const [videoPanel,setVideoPanel]=useState(false);
@@ -153,6 +170,7 @@ function AssetRow({ item, onDelete, onUpdate, validMark }) {
   const hasVideo=item.videoFileName||item.driveUrl;
   const borderColor=validMark==="valid"?"border-emerald-500/25":validMark==="invalid"?"border-red-500/20":"border-zinc-700/50";
   const bgColor=validMark==="valid"?"bg-emerald-500/5":validMark==="invalid"?"bg-red-500/5":"bg-zinc-800/60";
+  const datalistId=`speakers-${item.id}`;
 
   if (editing) return (
     <div className={`rounded-lg border ${bgColor} border-amber-500/40 p-3 space-y-2`}>
@@ -174,6 +192,10 @@ function AssetRow({ item, onDelete, onUpdate, validMark }) {
             {ASSET_TAGS.map(t=><option key={t}>{t}</option>)}
           </select>
         </div>
+      </div>
+      <div className="flex flex-col gap-1">
+        <label className="text-xs text-zinc-500">Speaker / Actor</label>
+        <SpeakerCombobox value={draft.speaker} onChange={v=>setDraft(d=>({...d,speaker:v}))} speakers={speakers} datalistId={datalistId}/>
       </div>
       <div className="flex flex-col gap-1">
         <label className="text-xs text-zinc-500">Script text</label>
@@ -199,6 +221,7 @@ function AssetRow({ item, onDelete, onUpdate, validMark }) {
           {validMark==="valid"&&<span className="text-emerald-400 text-xs">✓</span>}
           {validMark==="invalid"&&<span className="text-red-400 text-xs">✗</span>}
           <Tag tag={item.tag}/>
+          {item.speaker&&<span className="text-xs px-2 py-0.5 rounded-full border font-medium bg-teal-500/15 text-teal-300 border-teal-500/30">{item.speaker}</span>}
           <button onClick={()=>setVideoPanel(v=>!v)} className={`text-sm ${hasVideo?"text-amber-400":"text-zinc-600 hover:text-zinc-300"}`}>{hasVideo?"🎬":"📎"}</button>
           <button onClick={()=>{setDraft({...item});setEditing(true);}} className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-amber-400 transition-all text-xs px-1.5 py-0.5 rounded border border-transparent hover:border-amber-500/40">Edit</button>
           <button onClick={onDelete} className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 transition-all text-xl leading-none">×</button>
@@ -236,9 +259,10 @@ function AssetRow({ item, onDelete, onUpdate, validMark }) {
   );
 }
 
-function AddAssetForm({ onAdd, prefix, singularLabel }) {
-  const [id,setId]=useState(""); const [descriptor,setDescriptor]=useState(""); const [text,setText]=useState(""); const [tag,setTag]=useState("Founder");
-  const submit=()=>{ if(!id.trim()||!text.trim()) return; onAdd({id:id.trim(),descriptor:descriptor.trim(),text:text.trim(),tag,driveUrl:"",videoFileName:""}); setId("");setDescriptor("");setText(""); };
+function AddAssetForm({ onAdd, prefix, singularLabel, speakers }) {
+  const [id,setId]=useState(""); const [descriptor,setDescriptor]=useState(""); const [text,setText]=useState(""); const [tag,setTag]=useState("Founder"); const [speaker,setSpeaker]=useState("");
+  const datalistId=`speakers-add-${prefix}`;
+  const submit=()=>{ if(!id.trim()||!text.trim()) return; onAdd({id:id.trim(),descriptor:descriptor.trim(),text:text.trim(),tag,speaker:speaker.trim(),driveUrl:"",videoFileName:""}); setId("");setDescriptor("");setText("");setSpeaker(""); };
   return (
     <div className="mt-3 p-3 rounded-lg border border-dashed border-zinc-600/60 bg-zinc-900/40">
       <div className="flex gap-2 mb-2 flex-wrap">
@@ -251,6 +275,9 @@ function AddAssetForm({ onAdd, prefix, singularLabel }) {
           {ASSET_TAGS.map(t=><option key={t}>{t}</option>)}
         </select>
       </div>
+      <div className="mb-2">
+        <SpeakerCombobox value={speaker} onChange={setSpeaker} speakers={speakers} datalistId={datalistId}/>
+      </div>
       <textarea value={text} onChange={e=>setText(e.target.value)} placeholder={`Enter ${singularLabel.toLowerCase()} script text...`} rows={2}
         className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-amber-500 resize-none"/>
       <button onClick={submit} className="mt-2 px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-black text-sm font-bold rounded">+ Add {singularLabel}</button>
@@ -258,10 +285,79 @@ function AddAssetForm({ onAdd, prefix, singularLabel }) {
   );
 }
 
-function LibraryTab({ preHooks,setPreHooks,hooks,leads,bodies,ctas,setHooks,setLeads,setBodies,setCtas,validationStore }) {
+function SpeakerRoster({ speakers, setSpeakers }) {
+  const [open,setOpen]=useState(false);
+  const [newName,setNewName]=useState("");
+  const [newRole,setNewRole]=useState("Founder");
+  const [editId,setEditId]=useState(null);
+  const [editName,setEditName]=useState("");
+  const [editRole,setEditRole]=useState("Founder");
+
+  const addSpeaker=()=>{
+    if(!newName.trim()) return;
+    setSpeakers(prev=>[...prev,{id:`sp${Date.now()}`,name:newName.trim(),role:newRole}]);
+    setNewName(""); setNewRole("Founder");
+  };
+  const startEdit=(s)=>{ setEditId(s.id); setEditName(s.name); setEditRole(s.role||"Founder"); };
+  const saveEdit=()=>{ setSpeakers(prev=>prev.map(s=>s.id===editId?{...s,name:editName.trim(),role:editRole}:s)); setEditId(null); };
+  const deleteSpeaker=(id)=>setSpeakers(prev=>prev.filter(s=>s.id!==id));
+
+  return (
+    <div className="mb-5 rounded-lg border border-zinc-700/50 bg-zinc-800/40">
+      <button onClick={()=>setOpen(o=>!o)} className="w-full flex items-center justify-between px-4 py-2.5 text-left">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold uppercase tracking-widest text-zinc-400">Speakers / Actors</span>
+          <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded-full">{speakers.length}</span>
+        </div>
+        <span className="text-zinc-500 text-xs">{open?"▲":"▼"}</span>
+      </button>
+      {open&&(
+        <div className="px-4 pb-4 space-y-2">
+          {speakers.length===0&&<div className="text-zinc-600 text-xs py-1">No speakers yet. Add one below.</div>}
+          {speakers.map(s=>(
+            <div key={s.id} className="flex items-center gap-2">
+              {editId===s.id?(
+                <>
+                  <input value={editName} onChange={e=>setEditName(e.target.value)}
+                    className="flex-1 bg-zinc-900 border border-zinc-600 rounded px-2 py-1 text-sm text-zinc-300 focus:outline-none focus:border-amber-500"/>
+                  <select value={editRole} onChange={e=>setEditRole(e.target.value)}
+                    className="bg-zinc-900 border border-zinc-600 rounded px-2 py-1 text-sm text-zinc-300 focus:outline-none focus:border-amber-500">
+                    {ASSET_TAGS.filter(t=>t!=="Any").map(t=><option key={t}>{t}</option>)}
+                  </select>
+                  <button onClick={saveEdit} className="px-2 py-1 bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold rounded">Save</button>
+                  <button onClick={()=>setEditId(null)} className="px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-white text-xs rounded">Cancel</button>
+                </>
+              ):(
+                <>
+                  <span className="flex-1 text-sm text-zinc-300">{s.name}</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full border font-medium bg-teal-500/15 text-teal-300 border-teal-500/30">{s.name}</span>
+                  <Tag tag={s.role||"Any"}/>
+                  <button onClick={()=>startEdit(s)} className="text-zinc-500 hover:text-amber-400 text-xs px-1.5 py-0.5 rounded border border-transparent hover:border-amber-500/40">Edit</button>
+                  <button onClick={()=>deleteSpeaker(s.id)} className="text-zinc-600 hover:text-red-400 text-xl leading-none">×</button>
+                </>
+              )}
+            </div>
+          ))}
+          <div className="flex gap-2 pt-1 border-t border-zinc-700/40">
+            <input value={newName} onChange={e=>setNewName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addSpeaker()} placeholder="Name (e.g. Alex)"
+              className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-amber-500"/>
+            <select value={newRole} onChange={e=>setNewRole(e.target.value)}
+              className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-300 focus:outline-none focus:border-amber-500">
+              {ASSET_TAGS.filter(t=>t!=="Any").map(t=><option key={t}>{t}</option>)}
+            </select>
+            <button onClick={addSpeaker} className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold rounded">+ Add</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LibraryTab({ preHooks,setPreHooks,hooks,leads,bodies,ctas,setHooks,setLeads,setBodies,setCtas,validationStore,speakers,setSpeakers }) {
   const [activeSection,setActiveSection]=useState("All");
   const [tagSet,setTagSet]=useState(new Set());
   const [search,setSearch]=useState("");
+  const [speakerFilter,setSpeakerFilter]=useState("All");
   const sections=[
     {label:"Pre-hooks",items:preHooks,setter:setPreHooks,prefix:"PH",  singular:"Pre-hook"},
     {label:"Hooks",    items:hooks,   setter:setHooks,   prefix:"H",   singular:"Hook"    },
@@ -272,18 +368,40 @@ function LibraryTab({ preHooks,setPreHooks,hooks,leads,bodies,ctas,setHooks,setL
   const hookMarks=useMemo(()=>{ const m={}; Object.values(validationStore).forEach(v=>{ const hid=v.hookId; if(!(hid in m)) m[hid]=v.valid; else if(m[hid]!==v.valid) m[hid]="mixed"; }); return m; },[validationStore]);
   const leadMarks=useMemo(()=>{ const m={}; Object.values(validationStore).forEach(v=>{ const lid=v.leadId; if(!(lid in m)) m[lid]=v.valid; else if(m[lid]!==v.valid) m[lid]="mixed"; }); return m; },[validationStore]);
   const getMark=(label,id)=>{ const val=label==="Hooks"?hookMarks[id]:label==="Leads"?leadMarks[id]:undefined; if(val===true) return "valid"; if(val===false) return "invalid"; return undefined; };
-  const filterItems=items=>items.filter(i=>{ const matchSearch=search===""||i.id.toLowerCase().includes(search.toLowerCase())||i.text.toLowerCase().includes(search.toLowerCase())||(i.descriptor||"").toLowerCase().includes(search.toLowerCase()); return tagMatch(i.tag,tagSet)&&matchSearch; });
+  const filterItems=items=>items.filter(i=>{
+    const matchSearch=search===""||i.id.toLowerCase().includes(search.toLowerCase())||i.text.toLowerCase().includes(search.toLowerCase())||(i.descriptor||"").toLowerCase().includes(search.toLowerCase())||(i.speaker||"").toLowerCase().includes(search.toLowerCase());
+    const matchSpeaker=speakerFilter==="All"||(i.speaker||"")===(speakerFilter==="(none)"?"":speakerFilter);
+    return tagMatch(i.tag,tagSet)&&matchSearch&&matchSpeaker;
+  });
   const updateItem=(setter,id,patch)=>setter(prev=>prev.map(i=>i.id===id?{...i,...patch}:i));
   const visibleSections=sections.filter(s=>activeSection==="All"||s.label===activeSection);
+
+  // Collect all distinct speaker names used across all assets
+  const usedSpeakers=useMemo(()=>{
+    const names=new Set();
+    [...preHooks,...hooks,...leads,...bodies,...ctas].forEach(i=>{ if(i.speaker) names.add(i.speaker); });
+    return [...names].sort();
+  },[preHooks,hooks,leads,bodies,ctas]);
+
   return (
     <div>
+      <SpeakerRoster speakers={speakers} setSpeakers={setSpeakers}/>
       <div className="flex gap-1 mb-4 flex-wrap">
         {["All","Pre-hooks","Hooks","Leads","Bodies","CTAs"].map(t=>(
           <button key={t} onClick={()=>setActiveSection(t)}
             className={`px-3 py-1.5 text-xs rounded-full font-medium ${activeSection===t?"bg-zinc-700 text-white":"bg-zinc-800/60 text-zinc-500 hover:text-zinc-300"}`}>{t}</button>
         ))}
       </div>
-      <FilterBar tagSet={tagSet} setTagSet={setTagSet} search={search} setSearch={setSearch} placeholder="Search ID, text or descriptor..."/>
+      <FilterBar tagSet={tagSet} setTagSet={setTagSet} search={search} setSearch={setSearch} placeholder="Search ID, text, descriptor or speaker..."/>
+      {usedSpeakers.length>0&&(
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
+          <span className="text-xs text-zinc-500">Speaker:</span>
+          {["All","(none)",...usedSpeakers].map(sp=>(
+            <button key={sp} onClick={()=>setSpeakerFilter(sp)}
+              className={`px-2.5 py-0.5 text-xs rounded-full font-medium transition-colors border ${speakerFilter===sp?"bg-teal-500/30 text-teal-300 border-teal-500/50":"bg-zinc-800 text-zinc-500 border-zinc-700 hover:text-zinc-300"}`}>{sp}</button>
+          ))}
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {visibleSections.map(({label,items,setter,prefix,singular})=>{
           const filtered=filterItems(items);
@@ -295,13 +413,13 @@ function LibraryTab({ preHooks,setPreHooks,hooks,leads,bodies,ctas,setHooks,setL
               </div>
               <div className="space-y-2">
                 {filtered.map(item=>(
-                  <AssetRow key={item.id} item={item} validMark={getMark(label,item.id)}
+                  <AssetRow key={item.id} item={item} validMark={getMark(label,item.id)} speakers={speakers}
                     onUpdate={patch=>updateItem(setter,item.id,patch)}
                     onDelete={()=>setter(prev=>prev.filter(i=>i.id!==item.id))}/>
                 ))}
                 {filtered.length===0&&<div className="text-zinc-600 text-sm py-3 text-center">No items match filter.</div>}
               </div>
-              {(activeSection==="All"||activeSection===label)&&<AddAssetForm prefix={prefix} singularLabel={singular} onAdd={item=>setter(prev=>[...prev,item])}/>}
+              {(activeSection==="All"||activeSection===label)&&<AddAssetForm prefix={prefix} singularLabel={singular} speakers={speakers} onAdd={item=>setter(prev=>[...prev,item])}/>}
             </div>
           );
         })}
@@ -2087,6 +2205,7 @@ export default function App() {
   const [leads, setLeads] =useState(INITIAL_LEADS);
   const [bodies,setBodies]=useState(INITIAL_BODIES);
   const [ctas,  setCtas]  =useState(INITIAL_CTAS);
+  const [speakers,setSpeakers]=useState([]);
   const [comboData,setComboData]=useState({});
   const [validationStore,setValidationStore]=useState({});
   const [locked,setLocked]=useState(false);
@@ -2152,6 +2271,7 @@ export default function App() {
       setLeads(d.leads||[]);
       setBodies(d.bodies||[]);
       setCtas(d.ctas||[]);
+      setSpeakers(d.speakers||[]);
       setComboData(d.comboData||{});
       setValidationStore(d.validationStore||{});
       setLocked(d.locked||false);
@@ -2168,8 +2288,8 @@ export default function App() {
   // ── Auto-save whenever state changes ─────────────────────────────────────
   useEffect(()=>{
     if(!activeClientId||isMounting.current) return;
-    saveClientData(activeClientId,{preHooks,hooks,leads,bodies,ctas,comboData,validationStore,locked,validationMode,sheetsUrl,sheetyUrl,sheetyToken,zapierUrl});
-  },[preHooks,hooks,leads,bodies,ctas,comboData,validationStore,locked,validationMode,sheetsUrl,sheetyUrl,sheetyToken,zapierUrl]);
+    saveClientData(activeClientId,{preHooks,hooks,leads,bodies,ctas,speakers,comboData,validationStore,locked,validationMode,sheetsUrl,sheetyUrl,sheetyToken,zapierUrl});
+  },[preHooks,hooks,leads,bodies,ctas,speakers,comboData,validationStore,locked,validationMode,sheetsUrl,sheetyUrl,sheetyToken,zapierUrl]);
 
   const assetById=useMemo(()=>{
     const m={};
@@ -2363,7 +2483,7 @@ export default function App() {
             <button onClick={()=>setShowClientModal(true)} className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black text-sm font-bold rounded-lg shrink-0 ml-4">＋ Add Client</button>
           </div>
         )}
-        {tab==="library" &&<LibraryTab {...{preHooks,setPreHooks,hooks,leads,bodies,ctas,setHooks,setLeads,setBodies,setCtas,validationStore}}/>}
+        {tab==="library" &&<LibraryTab {...{preHooks,setPreHooks,hooks,leads,bodies,ctas,setHooks,setLeads,setBodies,setCtas,validationStore,speakers,setSpeakers}}/>}
         {tab==="validate"&&<ValidateTab {...{preHooks,hooks,leads,bodies,ctas,validationStore,setValidationStore,locked,setLocked,validationMode,setValidationMode,anthropicKey}}/>}
         {tab==="tracker" &&<TrackerTab combos={combos} onToggle={toggleCombo} onUrlChange={updateUrl} onFilenameChange={updateFilename} validationStore={validationStore} validPairs={validPairs} locked={locked} preHooks={preHooks} hooks={hooks} leads={leads} bodies={bodies} ctas={ctas} sheetsUrl={zapierUrl||sheetyUrl||sheetsUrl} syncState={syncState} onSyncRow={syncRow} onSyncAll={syncAll} buildRow={buildRow}/>}
         {tab==="stitch"  &&<StitchTab combos={combos} validationStore={validationStore} preHooks={preHooks} hooks={hooks} leads={leads} bodies={bodies} ctas={ctas} onMarkCreated={toggleCombo}/>}
