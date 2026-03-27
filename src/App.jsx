@@ -1370,10 +1370,10 @@ function FilenameField({ value, onChange }) {
   );
 }
 
-function ComboRow({ combo, vr, assetMap, onToggle, onUrlChange, onFilenameChange, sheetsUrl, syncStatus, onSync }) {
+function ComboRow({ combo, vr, assetMap, onToggle, onUrlChange, onFilenameChange, sheetsUrl, syncStatus, onSync, selected, onSelect }) {
   const [open, setOpen] = useState(false);
-  const borderCls = combo.created ? "border-emerald-500/20" : vr?.valid===false ? "border-red-500/15" : "border-zinc-700/40";
-  const bgCls     = combo.created ? "bg-emerald-500/5"      : vr?.valid===false ? "bg-red-500/5"      : "bg-zinc-800/40";
+  const borderCls = selected ? "border-teal-500/50" : combo.created ? "border-emerald-500/20" : vr?.valid===false ? "border-red-500/15" : "border-zinc-700/40";
+  const bgCls     = selected ? "bg-teal-500/8"      : combo.created ? "bg-emerald-500/5"      : vr?.valid===false ? "bg-red-500/5"      : "bg-zinc-800/40";
 
   const assetSlots = [
     ...(combo.preHookId ? [{id:combo.preHookId,label:"Pre-hook",idColor:"text-rose-400",  border:"border-rose-500/20",   bg:"bg-rose-500/5"  }] : []),
@@ -1389,6 +1389,9 @@ function ComboRow({ combo, vr, assetMap, onToggle, onUrlChange, onFilenameChange
     <div className={`rounded-lg border transition-all ${bgCls} ${borderCls}`}>
       {/* ── Main row ── */}
       <div className="flex items-center gap-3 p-3 flex-wrap">
+        {onSelect&&<input type="checkbox" checked={!!selected} onChange={e=>onSelect(e.target.checked)}
+          onClick={e=>e.stopPropagation()}
+          className="accent-teal-500 w-3.5 h-3.5 shrink-0 cursor-pointer" title="Select for Stitcher"/>}
         <input type="checkbox" checked={combo.created} onChange={()=>onToggle(combo.key)}
           className="accent-amber-500 w-4 h-4 shrink-0 cursor-pointer"/>
         {vr&&<span className="text-sm shrink-0">{vr.manual?"✏️":vr.valid?"✅":"❌"}</span>}
@@ -1508,7 +1511,7 @@ function ComboRow({ combo, vr, assetMap, onToggle, onUrlChange, onFilenameChange
   );
 }
 
-function TrackerTab({ combos, onToggle, onUrlChange, onFilenameChange, validationStore, validPairs, locked, preHooks, hooks, leads, bodies, ctas, sheetsUrl, syncState, onSyncRow, onSyncAll, buildRow }) {
+function TrackerTab({ combos, onToggle, onUrlChange, onFilenameChange, validationStore, setValidationStore, validPairs, locked, preHooks, hooks, leads, bodies, ctas, sheetsUrl, syncState, onSyncRow, onSyncAll, buildRow, setStitchQueue, setTab }) {
   const [tagSet,setTagSet]=useState(new Set());
   const [search,setSearch]=useState("");
   const [preHookFilter,setPreHookFilter]=useState("All");
@@ -1517,6 +1520,8 @@ function TrackerTab({ combos, onToggle, onUrlChange, onFilenameChange, validatio
   const [bodyFilter,setBodyFilter]=useState("All");
   const [statusFilter,setStatusFilter]=useState("All");
   const [speakerFilter,setSpeakerFilter]=useState("All");
+  const [selectedTrackerKeys,setSelectedTrackerKeys]=useState(new Set());
+  const toggleTrackerSelect=(key,val)=>setSelectedTrackerKeys(prev=>{const n=new Set(prev);val?n.add(key):n.delete(key);return n;});
 
   const vrMap=useMemo(()=>{ const m={}; Object.values(validationStore).forEach(r=>{m[`${r.hookId}+${r.leadId}`]=r;}); return m; },[validationStore]);
   const assetMap=useMemo(()=>{
@@ -1628,7 +1633,17 @@ function TrackerTab({ combos, onToggle, onUrlChange, onFilenameChange, validatio
       </div>
       <FilterBar tagSet={tagSet} setTagSet={setTagSet} search={search} setSearch={setSearch}/>
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-        <div className="text-xs text-zinc-500">{filtered.length} approved combo{filtered.length!==1?"s":""}{locked?" (locked view)":""}</div>
+        <div className="flex items-center gap-2">
+          <input type="checkbox"
+            checked={filtered.length>0&&filtered.every(c=>selectedTrackerKeys.has(c.key))}
+            ref={el=>{if(el)el.indeterminate=filtered.some(c=>selectedTrackerKeys.has(c.key))&&!filtered.every(c=>selectedTrackerKeys.has(c.key));}}
+            onChange={()=>{
+              const allSel=filtered.every(c=>selectedTrackerKeys.has(c.key));
+              setSelectedTrackerKeys(prev=>{const n=new Set(prev);filtered.forEach(c=>allSel?n.delete(c.key):n.add(c.key));return n;});
+            }}
+            className="accent-teal-500 w-3.5 h-3.5 cursor-pointer" title="Select all visible"/>
+          <div className="text-xs text-zinc-500">{filtered.length} approved combo{filtered.length!==1?"s":""}{locked?" (locked view)":""}</div>
+        </div>
         {sheetsUrl&&filtered.length>0&&(
           <button onClick={()=>onSyncAll(filtered)}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg transition-colors">
@@ -1655,10 +1670,39 @@ function TrackerTab({ combos, onToggle, onUrlChange, onFilenameChange, validatio
             <ComboRow key={combo.key} combo={combo} vr={vr} assetMap={assetMap}
               onToggle={onToggle} onUrlChange={onUrlChange} onFilenameChange={onFilenameChange}
               sheetsUrl={sheetsUrl} syncStatus={syncState[combo.key]}
-              onSync={()=>onSyncRow(combo,vr)}/>
+              onSync={()=>onSyncRow(combo,vr)}
+              selected={selectedTrackerKeys.has(combo.key)}
+              onSelect={val=>toggleTrackerSelect(combo.key,val)}/>
           );
         })}
       </div>
+
+      {/* Floating selection bar */}
+      {selectedTrackerKeys.size>0&&(
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-3 bg-zinc-900 border border-teal-500/40 rounded-full shadow-2xl shadow-black/60">
+          <span className="text-sm text-white font-semibold">{selectedTrackerKeys.size} selected</span>
+          <span className="text-zinc-600">|</span>
+          <button onClick={()=>setSelectedTrackerKeys(new Set())} className="text-xs text-zinc-400 hover:text-white transition-colors">Clear</button>
+          {setStitchQueue&&setTab&&(
+            <button
+              onClick={()=>{setStitchQueue(new Set(selectedTrackerKeys));setSelectedTrackerKeys(new Set());setTab("stitch");}}
+              className="px-3 py-1.5 bg-teal-500 hover:bg-teal-400 text-black text-xs font-bold rounded-full transition-colors">
+              🎬 Send to Stitcher
+            </button>
+          )}
+          {setValidationStore&&(
+            <button
+              onClick={()=>{
+                if(!window.confirm(`Remove ${selectedTrackerKeys.size} combo${selectedTrackerKeys.size!==1?"s":""} from Tracker? This deletes their validation results.`)) return;
+                setValidationStore(prev=>{const n={...prev};selectedTrackerKeys.forEach(k=>{delete n[k];});return n;});
+                setSelectedTrackerKeys(new Set());
+              }}
+              className="px-3 py-1.5 bg-red-500 hover:bg-red-400 text-white text-xs font-bold rounded-full transition-colors">
+              🗑 Delete {selectedTrackerKeys.size}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1970,7 +2014,7 @@ function SettingsTab({ sheetsUrl, setSheetsUrl, sheetyUrl, setSheetyUrl, sheetyT
 }
 
 // ── Stitch Tab ────────────────────────────────────────────────────────────
-function StitchTab({ combos, validationStore, preHooks, hooks, leads, bodies, ctas, onMarkCreated }) {
+function StitchTab({ combos, validationStore, preHooks, hooks, leads, bodies, ctas, onMarkCreated, stitchQueue, setStitchQueue }) {
   const [selectedKeys, setSelectedKeys] = useState(new Set());
   const [uploadedFiles, setUploadedFiles] = useState({});   // segId -> File
   const [batchStatus, setBatchStatus] = useState({});        // comboKey -> "stitching"|"done"|"error"
@@ -1988,14 +2032,17 @@ function StitchTab({ combos, validationStore, preHooks, hooks, leads, bodies, ct
   }, [preHooks, hooks, leads, bodies, ctas]);
 
   // Fix key mismatch: fall back to hook+lead-only key
+  // If a stitchQueue exists (sent from Tracker), only show those combos
   const validCombos = useMemo(() => {
-    return combos.filter(c => {
+    const all = combos.filter(c => {
       const fullKey = `${c.preHookId||"none"}+${c.hookId}+${c.leadId}+${c.bodyId||"none"}+${c.ctaId||"none"}`;
       const hlKey   = `${c.preHookId||"none"}+${c.hookId}+${c.leadId}+none+none`;
       const vr = validationStore[fullKey] || validationStore[hlKey];
       return vr && vr.valid === true;
     });
-  }, [combos, validationStore]);
+    if (stitchQueue && stitchQueue.size > 0) return all.filter(c => stitchQueue.has(c.key));
+    return all;
+  }, [combos, validationStore, stitchQueue]);
 
   const getSlots = (combo) => {
     const s = [];
@@ -2137,6 +2184,14 @@ function StitchTab({ combos, validationStore, preHooks, hooks, leads, bodies, ct
 
       {validCombos.length > 0 && (
         <>
+          {/* Queue banner */}
+          {stitchQueue&&stitchQueue.size>0&&(
+            <div className="flex items-center justify-between p-3 bg-teal-500/10 border border-teal-500/30 rounded-lg">
+              <span className="text-teal-300 text-sm font-medium">🎬 Showing {validCombos.length} combo{validCombos.length!==1?"s":""} sent from Tracker</span>
+              <button onClick={()=>setStitchQueue(new Set())} className="text-xs text-zinc-400 hover:text-white px-2 py-1 bg-zinc-800 rounded border border-zinc-700">Show all</button>
+            </div>
+          )}
+
           {/* Toolbar */}
           <div className="flex items-center gap-3 flex-wrap">
             <label className="flex items-center gap-2 cursor-pointer">
@@ -2503,6 +2558,7 @@ function ClientDropdown({ clients, activeClientId, onSelect, onManage }) {
 
 export default function App() {
   const [tab,setTab]=useState("library");
+  const [stitchQueue,setStitchQueue]=useState(new Set());
 
   // ── Client management ────────────────────────────────────────────────────
   const [clients,setClients]=useState([]);
@@ -2806,8 +2862,8 @@ export default function App() {
         )}
         {tab==="library" &&<LibraryTab {...{preHooks,setPreHooks,hooks,leads,bodies,ctas,setHooks,setLeads,setBodies,setCtas,validationStore,speakers,setSpeakers}}/>}
         {tab==="validate"&&<ValidateTab {...{preHooks,hooks,leads,bodies,ctas,validationStore,setValidationStore,locked,setLocked,validationMode,setValidationMode,anthropicKey}}/>}
-        {tab==="tracker" &&<TrackerTab combos={combos} onToggle={toggleCombo} onUrlChange={updateUrl} onFilenameChange={updateFilename} validationStore={validationStore} validPairs={validPairs} locked={locked} preHooks={preHooks} hooks={hooks} leads={leads} bodies={bodies} ctas={ctas} sheetsUrl={zapierUrl||sheetyUrl||sheetsUrl} syncState={syncState} onSyncRow={syncRow} onSyncAll={syncAll} buildRow={buildRow}/>}
-        {tab==="stitch"  &&<StitchTab combos={combos} validationStore={validationStore} preHooks={preHooks} hooks={hooks} leads={leads} bodies={bodies} ctas={ctas} onMarkCreated={toggleCombo}/>}
+        {tab==="tracker" &&<TrackerTab combos={combos} onToggle={toggleCombo} onUrlChange={updateUrl} onFilenameChange={updateFilename} validationStore={validationStore} setValidationStore={setValidationStore} validPairs={validPairs} locked={locked} preHooks={preHooks} hooks={hooks} leads={leads} bodies={bodies} ctas={ctas} sheetsUrl={zapierUrl||sheetyUrl||sheetsUrl} syncState={syncState} onSyncRow={syncRow} onSyncAll={syncAll} buildRow={buildRow} setStitchQueue={setStitchQueue} setTab={setTab}/>}
+        {tab==="stitch"  &&<StitchTab combos={combos} validationStore={validationStore} preHooks={preHooks} hooks={hooks} leads={leads} bodies={bodies} ctas={ctas} onMarkCreated={toggleCombo} stitchQueue={stitchQueue} setStitchQueue={setStitchQueue}/>}
         {tab==="settings"&&<SettingsTab sheetsUrl={sheetsUrl} setSheetsUrl={setSheetsUrl} sheetyUrl={sheetyUrl} setSheetyUrl={setSheetyUrl} sheetyToken={sheetyToken} setSheetyToken={setSheetyToken} zapierUrl={zapierUrl} setZapierUrl={setZapierUrl}/>}
       </div>
     </div>
