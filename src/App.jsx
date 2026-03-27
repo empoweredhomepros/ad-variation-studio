@@ -1258,7 +1258,7 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
             {transitionMode!=="none"&&<p className="text-xs text-zinc-600">Universal transitions auto-approve. Selective ones are validated by AI.</p>}
             {transitionMode==="pick"&&<div className="flex flex-wrap gap-2 pt-1">
               {visibleTransitions.map(t=>(
-                <button key={t.id} onClick={toggle(setSelectedTransitions,()=>visibleTransitions)(t.id)}
+                <button key={t.id} onClick={()=>toggle(setSelectedTransitions,()=>visibleTransitions)(t.id)}
                   className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border font-medium transition-colors
                     ${isSelected(selectedTransitions,t.id)?"bg-teal-500/20 border-teal-500/40 text-teal-300":"bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-white"}`}>
                   <span>{t.id}</span>
