@@ -28,6 +28,7 @@ const INITIAL_CTAS = [
   { id:"CTA2", descriptor:"DM prompt",    text:"DM us 'ADS' and we'll send it over.", tag:"UGC", driveUrl:"", videoFileName:"" },
   { id:"CTA3", descriptor:"founder ask",  text:"Book a free call with me — link is right below.", tag:"Founder", driveUrl:"", videoFileName:"" },
 ];
+const INITIAL_TRANSITIONS = [];
 
 const TAG_COLORS = {
   Founder: { bg:"bg-amber-500/20",   text:"text-amber-400",   border:"border-amber-500/30"  },
@@ -95,7 +96,7 @@ function ProgressRing({ done, total, combos, validationStore, locked }) {
     const relevant = combos.filter(c => tagMatch(c.hookTag, ringTagSet) && tagMatch(c.leadTag, ringTagSet));
     // If locked, only count valid combos
     const pool = locked && Object.keys(validationStore).length > 0
-      ? relevant.filter(c => { const vr = validationStore[`${c.hookId}+${c.leadId}+${c.bodyId||"none"}+${c.ctaId||"none"}`]; return vr && vr.valid === true; })
+      ? relevant.filter(c => { const vr = validationStore[c.key]; return vr && vr.valid === true; })
       : relevant;
     return { filteredDone: pool.filter(c=>c.created).length, filteredTotal: pool.length };
   }, [ringTagSet, combos, locked, validationStore, done, total]);
@@ -212,6 +213,15 @@ function AssetRow({ item, onDelete, onUpdate, validMark, speakers, selected, onS
             {ASSET_TAGS.map(t=><option key={t}>{t}</option>)}
           </select>
         </div>
+        {"universal" in draft&&(
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-zinc-500">Validation</label>
+            <label className="flex items-center gap-1.5 cursor-pointer mt-1.5">
+              <input type="checkbox" checked={!!draft.universal} onChange={e=>setDraft(d=>({...d,universal:e.target.checked}))} className="accent-teal-500 w-3.5 h-3.5"/>
+              <span className={`text-xs font-semibold ${draft.universal?"text-teal-400":"text-zinc-500"}`}>{draft.universal?"Universal":"Selective"}</span>
+            </label>
+          </div>
+        )}
       </div>
       <div className="flex flex-col gap-1">
         <label className="text-xs text-zinc-500">Speaker / Actor</label>
@@ -249,6 +259,7 @@ function AssetRow({ item, onDelete, onUpdate, validMark, speakers, selected, onS
           {validMark==="valid"&&<span className="text-emerald-400 text-xs">✓</span>}
           {validMark==="invalid"&&<span className="text-red-400 text-xs">✗</span>}
           <Tag tag={item.tag}/>
+          {"universal" in item&&<span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${item.universal?"bg-teal-500/15 text-teal-300 border-teal-500/30":"bg-zinc-700 text-zinc-400 border-zinc-600"}`}>{item.universal?"Universal":"Selective"}</span>}
           {item.speaker&&<span className="text-xs px-2 py-0.5 rounded-full border font-medium bg-teal-500/15 text-teal-300 border-teal-500/30">{item.speaker}</span>}
           <button onClick={()=>setVideoPanel(v=>!v)} className={`text-sm ${hasVideo?"text-amber-400":"text-zinc-600 hover:text-zinc-300"}`}>{hasVideo?"🎬":"📎"}</button>
           <button onClick={()=>{setDraft({...item});setEditing(true);}} className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-amber-400 transition-all text-xs px-1.5 py-0.5 rounded border border-transparent hover:border-amber-500/40">Edit</button>
@@ -287,10 +298,10 @@ function AssetRow({ item, onDelete, onUpdate, validMark, speakers, selected, onS
   );
 }
 
-function AddAssetForm({ onAdd, prefix, singularLabel, speakers }) {
-  const [id,setId]=useState(""); const [descriptor,setDescriptor]=useState(""); const [text,setText]=useState(""); const [tag,setTag]=useState("Founder"); const [speaker,setSpeaker]=useState("");
+function AddAssetForm({ onAdd, prefix, singularLabel, speakers, showUniversal }) {
+  const [id,setId]=useState(""); const [descriptor,setDescriptor]=useState(""); const [text,setText]=useState(""); const [tag,setTag]=useState("Founder"); const [speaker,setSpeaker]=useState(""); const [universal,setUniversal]=useState(true);
 
-  const submit=()=>{ if(!id.trim()||!text.trim()) return; onAdd({id:id.trim(),descriptor:descriptor.trim(),text:text.trim(),tag,speaker:speaker.trim(),driveUrl:"",videoFileName:""}); setId("");setDescriptor("");setText("");setSpeaker(""); };
+  const submit=()=>{ if(!id.trim()||!text.trim()) return; onAdd({id:id.trim(),descriptor:descriptor.trim(),text:text.trim(),tag,speaker:speaker.trim(),driveUrl:"",videoFileName:"",...(showUniversal?{universal}:{})}); setId("");setDescriptor("");setText("");setSpeaker(""); };
   return (
     <div className="mt-3 p-3 rounded-lg border border-dashed border-zinc-600/60 bg-zinc-900/40">
       <div className="flex gap-2 mb-2 flex-wrap">
@@ -302,12 +313,19 @@ function AddAssetForm({ onAdd, prefix, singularLabel, speakers }) {
           className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-300 focus:outline-none focus:border-amber-500">
           {ASSET_TAGS.map(t=><option key={t}>{t}</option>)}
         </select>
+        {showUniversal&&(
+          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+            <input type="checkbox" checked={universal} onChange={e=>setUniversal(e.target.checked)} className="accent-teal-500 w-3.5 h-3.5"/>
+            <span className={`text-xs font-semibold ${universal?"text-teal-400":"text-zinc-500"}`}>{universal?"Universal":"Selective"}</span>
+          </label>
+        )}
       </div>
       <div className="mb-2">
         <SpeakerCombobox value={speaker} onChange={setSpeaker} speakers={speakers}/>
       </div>
       <textarea value={text} onChange={e=>setText(e.target.value)} placeholder={`Enter ${singularLabel.toLowerCase()} script text...`} rows={2}
         className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-amber-500 resize-none"/>
+      {showUniversal&&<p className="text-xs text-zinc-600 mt-1">{universal?"Universal — works with any hook/lead, auto-approved in validator.":"Selective — will be validated by AI for each hook/lead combo."}</p>}
       <button onClick={submit} className="mt-2 px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-black text-sm font-bold rounded">+ Add {singularLabel}</button>
     </div>
   );
@@ -563,7 +581,7 @@ function BulkImportModal({ onClose, speakers, onImport }) {
   );
 }
 
-function LibraryTab({ preHooks,setPreHooks,hooks,leads,bodies,ctas,setHooks,setLeads,setBodies,setCtas,validationStore,speakers,setSpeakers }) {
+function LibraryTab({ preHooks,setPreHooks,hooks,transitions,setTransitions,leads,bodies,ctas,setHooks,setLeads,setBodies,setCtas,validationStore,speakers,setSpeakers }) {
   const [activeSection,setActiveSection]=useState("All");
   const [tagSet,setTagSet]=useState(new Set());
   const [search,setSearch]=useState("");
@@ -585,11 +603,12 @@ function LibraryTab({ preHooks,setPreHooks,hooks,leads,bodies,ctas,setHooks,setL
     setSelectedIds(new Set());
   };
   const sections=[
-    {label:"Pre-hooks",items:preHooks,setter:setPreHooks,prefix:"PH",  singular:"Pre-hook"},
-    {label:"Hooks",    items:hooks,   setter:setHooks,   prefix:"H",   singular:"Hook"    },
-    {label:"Leads",    items:leads,   setter:setLeads,   prefix:"L",   singular:"Lead"    },
-    {label:"Bodies",   items:bodies,  setter:setBodies,  prefix:"B",   singular:"Body"    },
-    {label:"CTAs",     items:ctas,    setter:setCtas,    prefix:"CTA", singular:"CTA"     },
+    {label:"Pre-hooks",   items:preHooks,   setter:setPreHooks,   prefix:"PH",  singular:"Pre-hook",   showUniversal:false},
+    {label:"Hooks",       items:hooks,      setter:setHooks,      prefix:"H",   singular:"Hook",       showUniversal:false},
+    {label:"Transitions", items:transitions,setter:setTransitions,prefix:"T",   singular:"Transition", showUniversal:true },
+    {label:"Leads",       items:leads,      setter:setLeads,      prefix:"L",   singular:"Lead",       showUniversal:false},
+    {label:"Bodies",      items:bodies,     setter:setBodies,     prefix:"B",   singular:"Body",       showUniversal:false},
+    {label:"CTAs",        items:ctas,       setter:setCtas,       prefix:"CTA", singular:"CTA",        showUniversal:false},
   ];
   const hookMarks=useMemo(()=>{ const m={}; Object.values(validationStore).forEach(v=>{ const hid=v.hookId; if(!(hid in m)) m[hid]=v.valid; else if(m[hid]!==v.valid) m[hid]="mixed"; }); return m; },[validationStore]);
   const leadMarks=useMemo(()=>{ const m={}; Object.values(validationStore).forEach(v=>{ const lid=v.leadId; if(!(lid in m)) m[lid]=v.valid; else if(m[lid]!==v.valid) m[lid]="mixed"; }); return m; },[validationStore]);
@@ -605,17 +624,18 @@ function LibraryTab({ preHooks,setPreHooks,hooks,leads,bodies,ctas,setHooks,setL
   // All speaker names: roster first, then any ad-hoc names on assets not in roster
   const allSpeakerNames=useMemo(()=>{
     const rosterNames=speakers.map(s=>s.name);
-    const assetNames=[...preHooks,...hooks,...leads,...bodies,...ctas].map(i=>i.speaker).filter(Boolean);
+    const assetNames=[...preHooks,...hooks,...transitions,...leads,...bodies,...ctas].map(i=>i.speaker).filter(Boolean);
     const combined=new Set([...rosterNames,...assetNames]);
     return [...combined].sort();
   },[speakers,preHooks,hooks,leads,bodies,ctas]);
 
   const handleImport=(buckets)=>{
-    if(buckets.prehooks?.length) setPreHooks(prev=>[...prev,...buckets.prehooks]);
-    if(buckets.hooks?.length)    setHooks(prev=>[...prev,...buckets.hooks]);
-    if(buckets.leads?.length)    setLeads(prev=>[...prev,...buckets.leads]);
-    if(buckets.bodies?.length)   setBodies(prev=>[...prev,...buckets.bodies]);
-    if(buckets.ctas?.length)     setCtas(prev=>[...prev,...buckets.ctas]);
+    if(buckets.prehooks?.length)     setPreHooks(prev=>[...prev,...buckets.prehooks]);
+    if(buckets.hooks?.length)        setHooks(prev=>[...prev,...buckets.hooks]);
+    if(buckets.transitions?.length)  setTransitions(prev=>[...prev,...buckets.transitions]);
+    if(buckets.leads?.length)        setLeads(prev=>[...prev,...buckets.leads]);
+    if(buckets.bodies?.length)       setBodies(prev=>[...prev,...buckets.bodies]);
+    if(buckets.ctas?.length)         setCtas(prev=>[...prev,...buckets.ctas]);
   };
 
   return (
@@ -683,7 +703,7 @@ function LibraryTab({ preHooks,setPreHooks,hooks,leads,bodies,ctas,setHooks,setL
                 })}
                 {filtered.length===0&&<div className="text-zinc-600 text-sm py-3 text-center">No items match filter.</div>}
               </div>
-              {(activeSection==="All"||activeSection===label)&&<AddAssetForm prefix={prefix} singularLabel={singular} speakers={speakers} onAdd={item=>setter(prev=>[...prev,item])}/>}
+              {(activeSection==="All"||activeSection===label)&&<AddAssetForm prefix={prefix} singularLabel={singular} speakers={speakers} showUniversal={showUniversal} onAdd={item=>setter(prev=>[...prev,item])}/>}
             </div>
           );
         })}
@@ -707,23 +727,25 @@ function LibraryTab({ preHooks,setPreHooks,hooks,leads,bodies,ctas,setHooks,setL
 }
 
 // ── Validation prompts by mode ─────────────────────────────────────────────
-function buildPrompt(hook, lead, body, cta, mode) {
+function buildPrompt(hook, transition, lead, body, cta, mode) {
+  const transPart=transition?`\nTransition: "${transition.text}"`:""
   const bodyPart=body?`\nBody: "${body.text}"`:""
   const ctaPart=cta?`\nCTA: "${cta.text}"`:""
   if (mode==="grammar") {
     return `You are a strict video ad script editor. Your job is to decide whether these segments can be stitched together and played back-to-back without confusing or losing the viewer.
 
-Hook: "${hook.text}"
+Hook: "${hook.text}"${transPart}
 Lead: "${lead.text}"${bodyPart}${ctaPart}
 
 Mark as INVALID if ANY of the following are true:
-- The lead starts with a connector word (but, and, so, because) that does NOT logically continue the specific thought from the hook
+- The lead (or transition if present) starts with a connector word (but, and, so, because) that does NOT logically continue the specific thought from the hook
 - The lead introduces a completely new subject with no bridge from what the hook just said
 - A viewer hearing these back-to-back would feel a jarring jump or be confused about who is speaking or what the point is
 - The perspective or subject suddenly shifts (e.g. hook is about the speaker, lead is about the viewer) with no connecting logic
 - Tonal mismatch — e.g. raw/casual hook followed by a formal or structured lead
+- If a transition is present, it must bridge hook to lead naturally — evaluate the full hook→transition→lead flow
 
-Mark as VALID only if the lead flows directly and logically from exactly what was said in the hook — as if it were one continuous sentence or thought.
+Mark as VALID only if the segments flow directly and logically from exactly what was said before — as if it were one continuous sentence or thought.
 
 Be strict. If there is any doubt about whether a real viewer would feel a disconnect, mark it invalid.
 
@@ -732,11 +754,12 @@ Respond ONLY in this exact JSON format with no other text:
   }
   return `You are a strict video ad script editor evaluating whether these segments work as a cohesive narrative when played back-to-back.
 
-Hook: "${hook.text}"
+Hook: "${hook.text}"${transPart}
 Lead: "${lead.text}"${bodyPart}${ctaPart}
 
 Mark as INVALID if ANY of the following are true:
 - The lead does not follow from the hook's specific premise, claim, or emotional direction
+- If a transition is present, it must connect hook to lead — a transition that doesn't bridge the gap makes the combo invalid
 - The body (if present) does not deliver on what the hook and lead set up
 - The CTA (if present) feels disconnected in tone or energy from the rest
 - There is no clear logical throughline a viewer could follow from start to finish
@@ -750,9 +773,9 @@ Respond ONLY in this exact JSON format with no other text:
 {"valid": true or false, "reason": "One sentence explaining the specific narrative connection or the exact point of breakdown."}`;
 }
 
-async function callValidate(hook, lead, body, cta, mode, apiKey) {
+async function callValidate(hook, transition, lead, body, cta, mode, apiKey) {
   if(!apiKey) throw new Error("No API key");
-  const prompt=buildPrompt(hook,lead,body,cta,mode);
+  const prompt=buildPrompt(hook,transition,lead,body,cta,mode);
   const res=await fetch("https://api.anthropic.com/v1/messages",{
     method:"POST",
     headers:{
@@ -808,6 +831,7 @@ function ResultCard({ result, hookText, leadText, bodyText, ctaText, onOverride,
         {/* IDs */}
         <div className="flex items-center gap-1 flex-wrap shrink-0">
           <span className="font-mono text-amber-400 text-xs font-bold">{result.hookId}</span>
+          {result.transitionId&&<><span className="text-zinc-600 text-xs">+</span><span className="font-mono text-teal-400 text-xs font-bold">{result.transitionId}</span></>}
           <span className="text-zinc-600 text-xs">+</span>
           <span className="font-mono text-sky-400 text-xs font-bold">{result.leadId}</span>
           {result.bodyId&&<><span className="text-zinc-600 text-xs">+</span><span className="font-mono text-purple-400 text-xs font-bold">{result.bodyId}</span></>}
@@ -940,12 +964,14 @@ function LockModal({ validCount, invalidCount, manualValidCount, onConfirm, onCa
   );
 }
 
-function ValidateTab({ preHooks,hooks,leads,bodies,ctas,speakers,validationStore,setValidationStore,locked,setLocked,validationMode,setValidationMode,anthropicKey }) {
+function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,validationStore,setValidationStore,locked,setLocked,validationMode,setValidationMode,anthropicKey }) {
   const [scopeTagSet,setScopeTagSet]=useState(new Set());
   const [preHookMode,setPreHookMode]=useState("none");
   const [preHookTagSet,setPreHookTagSet]=useState(new Set()); // independent filter
   const [selectedPreHooks,setSelectedPreHooks]=useState(null);
   const [selectedHooks,setSelectedHooks]=useState(null);
+  const [transitionMode,setTransitionMode]=useState("none");
+  const [selectedTransitions,setSelectedTransitions]=useState(null);
   const [selectedLeads,setSelectedLeads]=useState(null);
   const [selectedBodies,setSelectedBodies]=useState(null);
   const [selectedCtas,setSelectedCtas]=useState(null);
@@ -966,9 +992,10 @@ function ValidateTab({ preHooks,hooks,leads,bodies,ctas,speakers,validationStore
 
   // Pre-hooks use their OWN tag filter — independent of scopeTagSet
   // so an AI pre-hook can pair with Founder hooks etc.
-  const visiblePreHooks=useMemo(()=>preHooks.filter(ph=>tagMatch(ph.tag,preHookTagSet)),[preHooks,preHookTagSet]);
-  const visibleHooks   =useMemo(()=>hooks.filter(h=>tagMatch(h.tag,scopeTagSet)),[hooks,scopeTagSet]);
-  const visibleLeads   =useMemo(()=>leads.filter(l=>tagMatch(l.tag,scopeTagSet)),[leads,scopeTagSet]);
+  const visiblePreHooks  =useMemo(()=>preHooks.filter(ph=>tagMatch(ph.tag,preHookTagSet)),[preHooks,preHookTagSet]);
+  const visibleHooks     =useMemo(()=>hooks.filter(h=>tagMatch(h.tag,scopeTagSet)),[hooks,scopeTagSet]);
+  const visibleTransitions=useMemo(()=>transitions,[transitions]);
+  const visibleLeads     =useMemo(()=>leads.filter(l=>tagMatch(l.tag,scopeTagSet)),[leads,scopeTagSet]);
   // When a tag scope is active, "Any" assets are included because they are explicitly compatible with all tags.
   // If you want strict Founder-only, tag your bodies/CTAs as Founder. "Any" means "works with everything".
   const visibleBodies  =useMemo(()=>bodies.filter(b=>scopeTagSet.size===0 ? true : tagMatch(b.tag,scopeTagSet)||b.tag==="Any"),[bodies,scopeTagSet]);
@@ -979,6 +1006,11 @@ function ValidateTab({ preHooks,hooks,leads,bodies,ctas,speakers,validationStore
     if(preHookMode==="all")  return visiblePreHooks;
     return selectedPreHooks ? visiblePreHooks.filter(ph=>selectedPreHooks.has(ph.id)) : visiblePreHooks;
   },[preHookMode,visiblePreHooks,selectedPreHooks]);
+  const transitionsToRun=useMemo(()=>{
+    if(transitionMode==="none") return [null];
+    if(transitionMode==="all")  return visibleTransitions;
+    return selectedTransitions ? visibleTransitions.filter(t=>selectedTransitions.has(t.id)) : visibleTransitions;
+  },[transitionMode,visibleTransitions,selectedTransitions]);
   const hooksToRun =useMemo(()=>selectedHooks ?visibleHooks.filter(h=>selectedHooks.has(h.id)) :visibleHooks,[visibleHooks,selectedHooks]);
   const leadsToRun =useMemo(()=>selectedLeads ?visibleLeads.filter(l=>selectedLeads.has(l.id)) :visibleLeads,[visibleLeads,selectedLeads]);
   const bodiesToRun=useMemo(()=>{ if(bodyMode==="none") return [null]; if(bodyMode==="all") return visibleBodies; return selectedBodies?visibleBodies.filter(b=>selectedBodies.has(b.id)):visibleBodies; },[bodyMode,visibleBodies,selectedBodies]);
@@ -990,12 +1022,12 @@ function ValidateTab({ preHooks,hooks,leads,bodies,ctas,speakers,validationStore
 
   const allTasks=useMemo(()=>{
     const tasks=[];
-    for(const ph of preHooksToRun) for(const h of hooksToRun) for(const l of leadsToRun) for(const b of bodiesToRun) for(const c of ctasToRun){
-      const key=`${ph?.id||"none"}+${h.id}+${l.id}+${b?.id||"none"}+${c?.id||"none"}`;
-      tasks.push({ph,h,l,b,c,key});
+    for(const ph of preHooksToRun) for(const h of hooksToRun) for(const t of transitionsToRun) for(const l of leadsToRun) for(const b of bodiesToRun) for(const c of ctasToRun){
+      const key=`${ph?.id||"none"}+${h.id}+${t?.id||"none"}+${l.id}+${b?.id||"none"}+${c?.id||"none"}`;
+      tasks.push({ph,h,t,l,b,c,key});
     }
     return tasks;
-  },[preHooksToRun,hooksToRun,leadsToRun,bodiesToRun,ctasToRun]);
+  },[preHooksToRun,hooksToRun,transitionsToRun,leadsToRun,bodiesToRun,ctasToRun]);
 
   const newTasks=useMemo(()=>allTasks.filter(t=>!(t.key in validationStore)),[allTasks,validationStore]);
   const alreadyDone=allTasks.length-newTasks.length;
@@ -1005,12 +1037,18 @@ function ValidateTab({ preHooks,hooks,leads,bodies,ctas,speakers,validationStore
     setProgress({done:0,total:tasks.length});
     for(let i=0;i<tasks.length;i++){
       if(pauseRef.current){ setPendingQueue(tasks.slice(i)); setPaused(true); setRunning(false); return; }
-      const {ph,h,l,b,c,key}=tasks[i];
-      try {
-        const res=await callValidate(h,l,b,c,validationMode,anthropicKey);
-        setValidationStore(prev=>({...prev,[key]:{key,preHookId:ph?.id||null,hookId:h.id,leadId:l.id,bodyId:b?.id||null,ctaId:c?.id||null,hookTag:h.tag,leadTag:l.tag,valid:res.valid,reason:res.reason,manual:false,mode:validationMode}}));
-      } catch(err) {
-        setValidationStore(prev=>({...prev,[key]:{key,preHookId:ph?.id||null,hookId:h.id,leadId:l.id,bodyId:b?.id||null,ctaId:c?.id||null,hookTag:h.tag,leadTag:l.tag,valid:null,reason:`Error: ${err?.message||"Unknown error"}`,manual:false,mode:validationMode}}));
+      const {ph,h,t,l,b,c,key}=tasks[i];
+      const baseEntry={key,preHookId:ph?.id||null,hookId:h.id,transitionId:t?.id||null,leadId:l.id,bodyId:b?.id||null,ctaId:c?.id||null,hookTag:h.tag,leadTag:l.tag,mode:validationMode};
+      // Universal transitions auto-approve without calling the API
+      if(t?.universal===true){
+        setValidationStore(prev=>({...prev,[key]:{...baseEntry,valid:true,reason:"Universal transition — automatically approved.",manual:false}}));
+      } else {
+        try {
+          const res=await callValidate(h,t,l,b,c,validationMode,anthropicKey);
+          setValidationStore(prev=>({...prev,[key]:{...baseEntry,valid:res.valid,reason:res.reason,manual:false}}));
+        } catch(err) {
+          setValidationStore(prev=>({...prev,[key]:{...baseEntry,valid:null,reason:`Error: ${err?.message||"Unknown error"}`,manual:false}}));
+        }
       }
       setProgress({done:i+1,total:tasks.length});
     }
@@ -1031,7 +1069,7 @@ function ValidateTab({ preHooks,hooks,leads,bodies,ctas,speakers,validationStore
   const handleConfirmOverwrite=()=>{
     const manualTasks=Object.keys(validationStore).filter(k=>confirmModal.manualKeys.has(k)).map(k=>{
       const v=validationStore[k];
-      return {ph:preHooks.find(x=>x.id===v.preHookId)||null,h:hooks.find(x=>x.id===v.hookId),l:leads.find(x=>x.id===v.leadId),b:bodies.find(x=>x.id===v.bodyId)||null,c:ctas.find(x=>x.id===v.ctaId)||null,key:k};
+      return {ph:preHooks.find(x=>x.id===v.preHookId)||null,h:hooks.find(x=>x.id===v.hookId),t:transitions.find(x=>x.id===v.transitionId)||null,l:leads.find(x=>x.id===v.leadId),b:bodies.find(x=>x.id===v.bodyId)||null,c:ctas.find(x=>x.id===v.ctaId)||null,key:k};
     });
     setConfirmModal(null); executeRun([...confirmModal.tasks,...manualTasks]);
   };
@@ -1190,6 +1228,35 @@ function ValidateTab({ preHooks,hooks,leads,bodies,ctas,speakers,validationStore
           </div>
         </div>
 
+        {/* Transitions */}
+        {visibleTransitions.length>0&&(
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-zinc-400 uppercase tracking-widest font-semibold">Transitions {transitionMode!=="none"&&<span className="text-teal-400 font-bold ml-1 normal-case">{transitionsToRun.length} selected</span>}</label>
+              {transitionMode==="pick"&&<button onClick={()=>setSelectedTransitions(null)} className="text-xs text-zinc-500 hover:text-zinc-300">Select all</button>}
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              {[{val:"none",label:"Skip"},{val:"all",label:"All transitions"},{val:"pick",label:"Pick specific"}].map(opt=>(
+                <button key={opt.val} onClick={()=>setTransitionMode(opt.val)}
+                  className={`px-3 py-1.5 text-xs rounded-lg font-medium border transition-colors ${transitionMode===opt.val?"bg-amber-500 text-black border-amber-500":"bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white"}`}>
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            {transitionMode!=="none"&&<p className="text-xs text-zinc-600">Universal transitions auto-approve. Selective ones are validated by AI.</p>}
+            {transitionMode==="pick"&&<div className="flex flex-wrap gap-2 pt-1">
+              {visibleTransitions.map(t=>(
+                <button key={t.id} onClick={toggle(setSelectedTransitions,()=>visibleTransitions)(t.id)}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border font-medium transition-colors
+                    ${isSelected(selectedTransitions,t.id)?"bg-teal-500/20 border-teal-500/40 text-teal-300":"bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-white"}`}>
+                  <span>{t.id}</span>
+                  <span className={`text-xs px-1 py-0.5 rounded ${t.universal?"bg-teal-500/20 text-teal-400":"bg-zinc-700 text-zinc-500"}`}>{t.universal?"U":"S"}</span>
+                </button>
+              ))}
+            </div>}
+          </div>
+        )}
+
         {/* Leads */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
@@ -1249,6 +1316,7 @@ function ValidateTab({ preHooks,hooks,leads,bodies,ctas,speakers,validationStore
               Scope:{preHookMode!=="none"&&<>{" "}<span className="text-rose-400 font-bold">{preHooksToRun.length}PH</span>{" × "}</>}
               {preHookMode==="none"&&" "}
               <span className="text-amber-400 font-bold">{hooksToRun.length}H</span>{" × "}
+              {transitionMode!=="none"&&<><span className="text-teal-400 font-bold">{transitionsToRun.length}T</span>{" × "}</>}
               <span className="text-sky-400 font-bold">{leadsToRun.length}L</span>
               {bodyMode!=="none"&&<>{" × "}<span className="text-purple-400 font-bold">{bodiesToRun.length}B</span></>}
               {ctaMode!=="none"&&<>{" × "}<span className="text-pink-400 font-bold">{ctasToRun.length}CTA</span></>}
@@ -1520,6 +1588,7 @@ function ComboRow({ combo, vr, assetMap, onToggle, onUrlChange, onFilenameChange
           </>}
           <span className="font-mono text-amber-400 text-xs font-bold">{combo.hookId}</span>
           {combo.hookDescriptor&&<span className="text-zinc-600 text-xs italic">({combo.hookDescriptor})</span>}
+          {combo.transitionId&&<><span className="text-zinc-600 text-xs">+</span><span className="font-mono text-teal-400 text-xs font-bold">{combo.transitionId}</span></>}
           <span className="text-zinc-600 text-xs">+</span>
           <span className="font-mono text-sky-400 text-xs font-bold">{combo.leadId}</span>
           <span className="text-zinc-600 text-xs">+</span>
@@ -1654,8 +1723,8 @@ function TrackerTab({ combos, onToggle, onUrlChange, onFilenameChange, validatio
     if(Object.keys(validationStore).length===0) return [];
     const seenFallback=new Set();
     return combos.filter(c=>{
-      const fullKey=`${c.preHookId||"none"}+${c.hookId}+${c.leadId}+${c.bodyId||"none"}+${c.ctaId||"none"}`;
-      const hlKey  =`${c.preHookId||"none"}+${c.hookId}+${c.leadId}+none+none`;
+      const fullKey=`${c.preHookId||"none"}+${c.hookId}+${c.transitionId||"none"}+${c.leadId}+${c.bodyId||"none"}+${c.ctaId||"none"}`;
+      const hlKey  =`${c.preHookId||"none"}+${c.hookId}+none+${c.leadId}+none+none`;
       if(validationStore[fullKey]?.valid===true) return true;      // exact match — always include
       if(validationStore[hlKey]?.valid===true){                     // fallback — one row per pair only
         if(seenFallback.has(hlKey)) return false;
@@ -1782,8 +1851,7 @@ function TrackerTab({ combos, onToggle, onUrlChange, onFilenameChange, validatio
           </div>
         )}
         {filtered.map(combo=>{
-          const key=`${combo.hookId}+${combo.leadId}+${combo.bodyId||"none"}+${combo.ctaId||"none"}`;
-          const vr=validationStore[key];
+          const vr=validationStore[combo.key]||validationStore[`${combo.preHookId||"none"}+${combo.hookId}+none+${combo.leadId}+none+none`];
           return (
             <ComboRow key={combo.key} combo={combo} vr={vr} assetMap={assetMap}
               onToggle={onToggle} onUrlChange={onUrlChange} onFilenameChange={onFilenameChange}
@@ -1820,7 +1888,7 @@ function TrackerTab({ combos, onToggle, onUrlChange, onFilenameChange, validatio
                     // Fall back to hook+lead-only key (when validated without body/CTA)
                     const combo=baseCombos.find(c=>c.key===comboKey);
                     if(combo){
-                      const hlKey=`${combo.preHookId||"none"}+${combo.hookId}+${combo.leadId}+none+none`;
+                      const hlKey=`${combo.preHookId||"none"}+${combo.hookId}+none+${combo.leadId}+none+none`;
                       delete n[hlKey];
                     }
                   });
@@ -2145,7 +2213,7 @@ function SettingsTab({ sheetsUrl, setSheetsUrl, sheetyUrl, setSheetyUrl, sheetyT
 }
 
 // ── Stitch Tab ────────────────────────────────────────────────────────────
-function StitchTab({ combos, validationStore, preHooks, hooks, leads, bodies, ctas, onMarkCreated, stitchQueue, setStitchQueue }) {
+function StitchTab({ combos, validationStore, preHooks, hooks, transitions, leads, bodies, ctas, onMarkCreated, stitchQueue, setStitchQueue }) {
   const [selectedKeys, setSelectedKeys] = useState(new Set());
   const [uploadedFiles, setUploadedFiles] = useState({});   // segId -> File
   const [batchStatus, setBatchStatus] = useState({});        // comboKey -> "stitching"|"done"|"error"
@@ -2158,16 +2226,16 @@ function StitchTab({ combos, validationStore, preHooks, hooks, leads, bodies, ct
 
   const assetMap = useMemo(() => {
     const m = {};
-    [...preHooks, ...hooks, ...leads, ...bodies, ...ctas].forEach(a => { m[a.id] = a; });
+    [...preHooks, ...hooks, ...(transitions||[]), ...leads, ...bodies, ...ctas].forEach(a => { m[a.id] = a; });
     return m;
-  }, [preHooks, hooks, leads, bodies, ctas]);
+  }, [preHooks, hooks, transitions, leads, bodies, ctas]);
 
   // Fix key mismatch: fall back to hook+lead-only key
   // If a stitchQueue exists (sent from Tracker), only show those combos
   const validCombos = useMemo(() => {
     const all = combos.filter(c => {
-      const fullKey = `${c.preHookId||"none"}+${c.hookId}+${c.leadId}+${c.bodyId||"none"}+${c.ctaId||"none"}`;
-      const hlKey   = `${c.preHookId||"none"}+${c.hookId}+${c.leadId}+none+none`;
+      const fullKey = `${c.preHookId||"none"}+${c.hookId}+${c.transitionId||"none"}+${c.leadId}+${c.bodyId||"none"}+${c.ctaId||"none"}`;
+      const hlKey   = `${c.preHookId||"none"}+${c.hookId}+none+${c.leadId}+none+none`;
       const vr = validationStore[fullKey] || validationStore[hlKey];
       return vr && vr.valid === true;
     });
@@ -2177,8 +2245,10 @@ function StitchTab({ combos, validationStore, preHooks, hooks, leads, bodies, ct
 
   const getSlots = (combo) => {
     const s = [];
-    if (combo.preHookId) s.push({ id: combo.preHookId, label: "Pre-hook" });
-    s.push({ id: combo.hookId, label: "Hook" }, { id: combo.leadId, label: "Lead" });
+    if (combo.preHookId)    s.push({ id: combo.preHookId,    label: "Pre-hook"   });
+    s.push({ id: combo.hookId, label: "Hook" });
+    if (combo.transitionId) s.push({ id: combo.transitionId, label: "Transition" });
+    s.push({ id: combo.leadId, label: "Lead" });
     if (combo.bodyId) s.push({ id: combo.bodyId, label: "Body" });
     if (combo.ctaId)  s.push({ id: combo.ctaId,  label: "CTA"  });
     return s;
@@ -2369,7 +2439,7 @@ function StitchTab({ combos, validationStore, preHooks, hooks, leads, bodies, ct
                     <input type="checkbox" checked={isSelected} onChange={() => toggleKey(combo.key)} disabled={batchRunning}
                       className="accent-amber-500 w-3.5 h-3.5 shrink-0"/>
                     <div className="flex items-center gap-1 flex-1 min-w-0 flex-wrap">
-                      {[combo.preHookId, combo.hookId, combo.leadId, combo.bodyId, combo.ctaId].filter(Boolean).map((id, i, arr) => (
+                      {[combo.preHookId, combo.hookId, combo.transitionId, combo.leadId, combo.bodyId, combo.ctaId].filter(Boolean).map((id, i, arr) => (
                         <span key={id} className="flex items-center gap-1">
                           <span className="font-mono text-amber-400 text-xs font-bold">{id}</span>
                           {i < arr.length - 1 && <span className="text-zinc-600 text-xs">+</span>}
@@ -2712,6 +2782,7 @@ export default function App() {
 
   const [preHooks,setPreHooks]=useState(INITIAL_PREHOOKS);
   const [hooks, setHooks] =useState(INITIAL_HOOKS);
+  const [transitions,setTransitions]=useState(INITIAL_TRANSITIONS);
   const [leads, setLeads] =useState(INITIAL_LEADS);
   const [bodies,setBodies]=useState(INITIAL_BODIES);
   const [ctas,  setCtas]  =useState(INITIAL_CTAS);
@@ -2721,17 +2792,19 @@ export default function App() {
   const [locked,setLocked]=useState(false);
   const [validationMode,setValidationMode]=useState("grammar");
 
-  // Pre-hook is optional — null means "no pre-hook"
-  const preHookSlots = useMemo(()=>[null,...preHooks],[preHooks]);
+  // Pre-hook and Transition are optional — null means "skip"
+  const preHookSlots     = useMemo(()=>[null,...preHooks],[preHooks]);
+  const transitionSlots  = useMemo(()=>[null,...transitions],[transitions]);
 
   const combos=useMemo(()=>{
     const all=[];
-    for(const ph of preHookSlots) for(const h of hooks) for(const l of leads) for(const b of bodies) for(const c of ctas){
-      const key=`${ph?.id||"none"}+${h.id}+${l.id}+${b.id}+${c.id}`;
+    for(const ph of preHookSlots) for(const h of hooks) for(const t of transitionSlots) for(const l of leads) for(const b of bodies) for(const c of ctas){
+      const key=`${ph?.id||"none"}+${h.id}+${t?.id||"none"}+${l.id}+${b.id}+${c.id}`;
       const phDesc=ph?.descriptor?`(${ph.descriptor.replace(/\s+/g,"-")})`:"";
       const hDesc=h.descriptor?`(${h.descriptor.replace(/\s+/g,"-")})`:"";
-      const autoFilename=`${ph?`${ph.id}${phDesc}`:""}${h.id}${hDesc}${l.id}${b.id}${c.id}`;
-      all.push({key,preHookId:ph?.id||null,hookId:h.id,leadId:l.id,bodyId:b.id,ctaId:c.id,
+      const tDesc=t?.descriptor?`(${t.descriptor.replace(/\s+/g,"-")})`:"";
+      const autoFilename=`${ph?`${ph.id}${phDesc}`:""}${h.id}${hDesc}${t?`${t.id}${tDesc}`:""}${l.id}${b.id}${c.id}`;
+      all.push({key,preHookId:ph?.id||null,hookId:h.id,transitionId:t?.id||null,leadId:l.id,bodyId:b.id,ctaId:c.id,
         hookTag:h.tag,leadTag:l.tag,preHookTag:ph?.tag||null,hookDescriptor:h.descriptor||"",
         created:comboData[key]?.created||false,date:comboData[key]?.date||"",url:comboData[key]?.url||"",
         autoFilename,filename:comboData[key]?.filename||""});
@@ -2741,7 +2814,7 @@ export default function App() {
 
   // Only count results that belong to the current combo scope (exact key or hook+lead-only fallback)
   const comboKeySet=useMemo(()=>new Set(combos.map(c=>c.key)),[combos]);
-  const comboHlKeySet=useMemo(()=>new Set(combos.map(c=>`${c.preHookId||"none"}+${c.hookId}+${c.leadId}+none+none`)),[combos]);
+  const comboHlKeySet=useMemo(()=>new Set(combos.map(c=>`${c.preHookId||"none"}+${c.hookId}+none+${c.leadId}+none+none`)),[combos]);
   const validationResults=useMemo(()=>
     Object.values(validationStore).filter(r=>comboKeySet.has(r.key)||comboHlKeySet.has(r.key)),
   [validationStore,comboKeySet,comboHlKeySet]);
@@ -2779,6 +2852,7 @@ export default function App() {
     loadClientData(activeClientId).then(d=>{
       setPreHooks(d.preHooks||[]);
       setHooks(d.hooks||[]);
+      setTransitions(d.transitions||[]);
       setLeads(d.leads||[]);
       setBodies(d.bodies||[]);
       setCtas(d.ctas||[]);
@@ -2799,14 +2873,14 @@ export default function App() {
   // ── Auto-save whenever state changes ─────────────────────────────────────
   useEffect(()=>{
     if(!activeClientId||isMounting.current) return;
-    saveClientData(activeClientId,{preHooks,hooks,leads,bodies,ctas,speakers,comboData,validationStore,locked,validationMode,sheetsUrl,sheetyUrl,sheetyToken,zapierUrl});
-  },[preHooks,hooks,leads,bodies,ctas,speakers,comboData,validationStore,locked,validationMode,sheetsUrl,sheetyUrl,sheetyToken,zapierUrl]);
+    saveClientData(activeClientId,{preHooks,hooks,transitions,leads,bodies,ctas,speakers,comboData,validationStore,locked,validationMode,sheetsUrl,sheetyUrl,sheetyToken,zapierUrl});
+  },[preHooks,hooks,transitions,leads,bodies,ctas,speakers,comboData,validationStore,locked,validationMode,sheetsUrl,sheetyUrl,sheetyToken,zapierUrl]);
 
   const assetById=useMemo(()=>{
     const m={};
-    [...preHooks,...hooks,...leads,...bodies,...ctas].forEach(a=>{m[a.id]=a;});
+    [...preHooks,...hooks,...transitions,...leads,...bodies,...ctas].forEach(a=>{m[a.id]=a;});
     return m;
-  },[preHooks,hooks,leads,bodies,ctas]);
+  },[preHooks,hooks,transitions,leads,bodies,ctas]);
 
   const buildSheetyRow=(combo,vr)=>{
     const ph=assetById[combo.preHookId];
@@ -2902,7 +2976,7 @@ export default function App() {
 
   const syncAll=async(approvedCombos)=>{
     for(const combo of approvedCombos){
-      const vr=validationStore[`${combo.preHookId||"none"}+${combo.hookId}+${combo.leadId}+${combo.bodyId||"none"}+${combo.ctaId||"none"}`];
+      const vr=validationStore[combo.key]||validationStore[`${combo.preHookId||"none"}+${combo.hookId}+none+${combo.leadId}+none+none`];
       await syncRow(combo,vr);
       await new Promise(r=>setTimeout(r,200));
     }
@@ -2965,11 +3039,12 @@ export default function App() {
       <div className="max-w-5xl mx-auto px-5 pt-7">
         <div className="flex gap-3 mb-7 flex-wrap">
           {[
-            {label:"Pre-hooks",     count:preHooks.length, color:"text-rose-400"},
-            {label:"Hooks",         count:hooks.length,    color:"text-amber-400"},
-            {label:"Leads",         count:leads.length,    color:"text-sky-400"},
-            {label:"Bodies",        count:bodies.length,   color:"text-purple-400"},
-            {label:"CTAs",          count:ctas.length,     color:"text-pink-400"},
+            {label:"Pre-hooks",     count:preHooks.length,    color:"text-rose-400"},
+            {label:"Hooks",         count:hooks.length,       color:"text-amber-400"},
+            {label:"Transitions",   count:transitions.length, color:"text-teal-400"},
+            {label:"Leads",         count:leads.length,       color:"text-sky-400"},
+            {label:"Bodies",        count:bodies.length,      color:"text-purple-400"},
+            {label:"CTAs",          count:ctas.length,        color:"text-pink-400"},
             {label:"Total Possible",count:total,           color:"text-white"},
             ...(validationResults.length>0?[
               {label:"Valid Combos",count:validPairs,color:"text-emerald-400"},
@@ -2994,10 +3069,10 @@ export default function App() {
             <button onClick={()=>setShowClientModal(true)} className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black text-sm font-bold rounded-lg shrink-0 ml-4">＋ Add Client</button>
           </div>
         )}
-        {tab==="library" &&<LibraryTab {...{preHooks,setPreHooks,hooks,leads,bodies,ctas,setHooks,setLeads,setBodies,setCtas,validationStore,speakers,setSpeakers}}/>}
-        {tab==="validate"&&<ValidateTab {...{preHooks,hooks,leads,bodies,ctas,speakers,validationStore,setValidationStore,locked,setLocked,validationMode,setValidationMode,anthropicKey}}/>}
+        {tab==="library" &&<LibraryTab {...{preHooks,setPreHooks,hooks,transitions,setTransitions,leads,bodies,ctas,setHooks,setLeads,setBodies,setCtas,validationStore,speakers,setSpeakers}}/>}
+        {tab==="validate"&&<ValidateTab {...{preHooks,hooks,transitions,leads,bodies,ctas,speakers,validationStore,setValidationStore,locked,setLocked,validationMode,setValidationMode,anthropicKey}}/>}
         {tab==="tracker" &&<TrackerTab combos={combos} onToggle={toggleCombo} onUrlChange={updateUrl} onFilenameChange={updateFilename} validationStore={validationStore} setValidationStore={setValidationStore} validPairs={validPairs} locked={locked} preHooks={preHooks} hooks={hooks} leads={leads} bodies={bodies} ctas={ctas} sheetsUrl={zapierUrl||sheetyUrl||sheetsUrl} syncState={syncState} onSyncRow={syncRow} onSyncAll={syncAll} buildRow={buildRow} setStitchQueue={setStitchQueue} setTab={setTab}/>}
-        {tab==="stitch"  &&<StitchTab combos={combos} validationStore={validationStore} preHooks={preHooks} hooks={hooks} leads={leads} bodies={bodies} ctas={ctas} onMarkCreated={toggleCombo} stitchQueue={stitchQueue} setStitchQueue={setStitchQueue}/>}
+        {tab==="stitch"  &&<StitchTab combos={combos} validationStore={validationStore} preHooks={preHooks} hooks={hooks} transitions={transitions} leads={leads} bodies={bodies} ctas={ctas} onMarkCreated={toggleCombo} stitchQueue={stitchQueue} setStitchQueue={setStitchQueue}/>}
         {tab==="settings"&&<SettingsTab sheetsUrl={sheetsUrl} setSheetsUrl={setSheetsUrl} sheetyUrl={sheetyUrl} setSheetyUrl={setSheetyUrl} sheetyToken={sheetyToken} setSheetyToken={setSheetyToken} zapierUrl={zapierUrl} setZapierUrl={setZapierUrl}/>}
       </div>
     </div>
