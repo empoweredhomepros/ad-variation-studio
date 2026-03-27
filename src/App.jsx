@@ -1721,17 +1721,11 @@ function TrackerTab({ combos, onToggle, onUrlChange, onFilenameChange, validatio
   // Exact match first; fallback to hook+lead-only key but deduplicated so one row per pair
   const baseCombos=useMemo(()=>{
     if(Object.keys(validationStore).length===0) return [];
-    const seenFallback=new Set();
     return combos.filter(c=>{
       const fullKey=`${c.preHookId||"none"}+${c.hookId}+${c.leadId}+${c.transitionId||"none"}+${c.bodyId||"none"}+${c.ctaId||"none"}`;
       const hlKey  =`${c.preHookId||"none"}+${c.hookId}+${c.leadId}+none+none+none`;
-      if(validationStore[fullKey]?.valid===true) return true;      // exact match — always include
-      if(validationStore[hlKey]?.valid===true){                     // fallback — one row per pair only
-        if(seenFallback.has(hlKey)) return false;
-        seenFallback.add(hlKey);
-        return true;
-      }
-      return false;
+      // Exact key match OR HL-fallback (all body/CTA combos for a valid H+L pair are included)
+      return validationStore[fullKey]?.valid===true || validationStore[hlKey]?.valid===true;
     });
   },[combos,validationStore]);
 
