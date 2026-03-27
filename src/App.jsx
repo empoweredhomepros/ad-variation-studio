@@ -1526,14 +1526,20 @@ function TrackerTab({ combos, onToggle, onUrlChange, onFilenameChange, validatio
   },[preHooks,hooks,leads,bodies,ctas]);
 
   // Always show only validated+approved (AI ✅ or manually overridden ✅) combos
-  // Falls back to hook+lead-only key so combos validated without body/CTA still appear
+  // Exact match first; fallback to hook+lead-only key but deduplicated so one row per pair
   const baseCombos=useMemo(()=>{
-    if(Object.keys(validationStore).length===0) return []; // nothing validated yet
+    if(Object.keys(validationStore).length===0) return [];
+    const seenFallback=new Set();
     return combos.filter(c=>{
-      const fullKey =`${c.preHookId||"none"}+${c.hookId}+${c.leadId}+${c.bodyId||"none"}+${c.ctaId||"none"}`;
-      const hlKey   =`${c.preHookId||"none"}+${c.hookId}+${c.leadId}+none+none`;
-      const vr=validationStore[fullKey]||validationStore[hlKey];
-      return vr&&vr.valid===true;
+      const fullKey=`${c.preHookId||"none"}+${c.hookId}+${c.leadId}+${c.bodyId||"none"}+${c.ctaId||"none"}`;
+      const hlKey  =`${c.preHookId||"none"}+${c.hookId}+${c.leadId}+none+none`;
+      if(validationStore[fullKey]?.valid===true) return true;      // exact match — always include
+      if(validationStore[hlKey]?.valid===true){                     // fallback — one row per pair only
+        if(seenFallback.has(hlKey)) return false;
+        seenFallback.add(hlKey);
+        return true;
+      }
+      return false;
     });
   },[combos,validationStore]);
 
@@ -1965,12 +1971,13 @@ function SettingsTab({ sheetsUrl, setSheetsUrl, sheetyUrl, setSheetyUrl, sheetyT
 
 // ── Stitch Tab ────────────────────────────────────────────────────────────
 function StitchTab({ combos, validationStore, preHooks, hooks, leads, bodies, ctas, onMarkCreated }) {
-  const [selectedKey, setSelectedKey] = useState(null);
-  const [uploadedFiles, setUploadedFiles] = useState({});
-  const [status, setStatus] = useState("idle"); // idle | loading | writing | stitching | done | error
-  const [errorMsg, setErrorMsg] = useState("");
-  const [outputUrl, setOutputUrl] = useState(null);
-  const [outputFilename, setOutputFilename] = useState("");
+  const [selectedKeys, setSelectedKeys] = useState(new Set());
+  const [uploadedFiles, setUploadedFiles] = useState({});   // segId -> File
+  const [batchStatus, setBatchStatus] = useState({});        // comboKey -> "stitching"|"done"|"error"
+  const [batchErrors, setBatchErrors] = useState({});        // comboKey -> string
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [currentlyStitching, setCurrentlyStitching] = useState(null);
+  const [statusLabel, setStatusLabel] = useState("");
   const ffmpegRef = useRef(null);
   const [ffmpegLoaded, setFfmpegLoaded] = useState(false);
 
@@ -1980,296 +1987,271 @@ function StitchTab({ combos, validationStore, preHooks, hooks, leads, bodies, ct
     return m;
   }, [preHooks, hooks, leads, bodies, ctas]);
 
+  // Fix key mismatch: fall back to hook+lead-only key
   const validCombos = useMemo(() => {
     return combos.filter(c => {
-      const key = `${c.preHookId || "none"}+${c.hookId}+${c.leadId}+${c.bodyId || "none"}+${c.ctaId || "none"}`;
-      const vr = validationStore[key];
+      const fullKey = `${c.preHookId||"none"}+${c.hookId}+${c.leadId}+${c.bodyId||"none"}+${c.ctaId||"none"}`;
+      const hlKey   = `${c.preHookId||"none"}+${c.hookId}+${c.leadId}+none+none`;
+      const vr = validationStore[fullKey] || validationStore[hlKey];
       return vr && vr.valid === true;
     });
   }, [combos, validationStore]);
 
-  const selectedCombo = validCombos.find(c => c.key === selectedKey) || null;
-
-  const segmentSlots = useMemo(() => {
-    if (!selectedCombo) return [];
-    const slots = [];
-    if (selectedCombo.preHookId) slots.push({ id: selectedCombo.preHookId, label: "Pre-hook", idColor: "text-rose-400", border: "border-rose-500/30", bg: "bg-rose-500/5" });
-    slots.push({ id: selectedCombo.hookId, label: "Hook", idColor: "text-amber-400", border: "border-amber-500/30", bg: "bg-amber-500/5" });
-    slots.push({ id: selectedCombo.leadId, label: "Lead", idColor: "text-sky-400", border: "border-sky-500/30", bg: "bg-sky-500/5" });
-    if (selectedCombo.bodyId) slots.push({ id: selectedCombo.bodyId, label: "Body", idColor: "text-purple-400", border: "border-purple-500/30", bg: "bg-purple-500/5" });
-    if (selectedCombo.ctaId) slots.push({ id: selectedCombo.ctaId, label: "CTA", idColor: "text-pink-400", border: "border-pink-500/30", bg: "bg-pink-500/5" });
-    return slots;
-  }, [selectedCombo]);
-
-  const filesReady = segmentSlots.filter(s => uploadedFiles[s.id] || assetMap[s.id]?.driveUrl).length;
-  const filesTotal = segmentSlots.length;
-  const allReady = filesReady === filesTotal && filesTotal > 0;
-
-  const handleFileChange = (segId, file) => {
-    if (!file) return;
-    setUploadedFiles(prev => ({ ...prev, [segId]: file }));
+  const getSlots = (combo) => {
+    const s = [];
+    if (combo.preHookId) s.push({ id: combo.preHookId, label: "Pre-hook" });
+    s.push({ id: combo.hookId, label: "Hook" }, { id: combo.leadId, label: "Lead" });
+    if (combo.bodyId) s.push({ id: combo.bodyId, label: "Body" });
+    if (combo.ctaId)  s.push({ id: combo.ctaId,  label: "CTA"  });
+    return s;
   };
 
-  const handleStitch = async () => {
-    if (!allReady) return;
-    setStatus("loading");
-    setErrorMsg("");
-    setOutputUrl(null);
-    try {
-      if (!ffmpegRef.current) {
-        const { FFmpeg } = await import("@ffmpeg/ffmpeg");
-        ffmpegRef.current = new FFmpeg();
-      }
-      const ffmpeg = ffmpegRef.current;
-      const ffmpegLogs = [];
-      ffmpeg.on("log", ({ message }) => { ffmpegLogs.push(message); });
-      if (!ffmpegLoaded) {
-        const { toBlobURL } = await import("@ffmpeg/util");
-        const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.9/dist/esm";
-        await ffmpeg.load({
-          coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
-          wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
-        });
-        setFfmpegLoaded(true);
-      }
+  const comboReadiness = (combo) => {
+    const slots = getSlots(combo);
+    const ready = slots.filter(s => uploadedFiles[s.id] || assetMap[s.id]?.driveUrl).length;
+    return { ready, total: slots.length, allReady: ready === slots.length };
+  };
 
-      setStatus("writing");
-      const { fetchFile } = await import("@ffmpeg/util");
-      const fileNames = [];
-      for (const slot of segmentSlots) {
-        const file = uploadedFiles[slot.id];
-        const asset = assetMap[slot.id];
-        const fname = `${slot.id}.mp4`;
-        if (file) {
-          await ffmpeg.writeFile(fname, await fetchFile(file));
-        } else if (asset?.driveUrl) {
-          const proxyUrl = `/api/proxy?url=${encodeURIComponent(asset.driveUrl)}`;
-          const resp = await fetch(proxyUrl);
-          if (!resp.ok) throw new Error(`Failed to download ${slot.id}: HTTP ${resp.status}`);
-          const ct = resp.headers.get("content-type") || "";
-          if (ct.includes("text/html")) throw new Error(`Google Drive returned an HTML page for ${slot.id} instead of a video. Check the sharing link is set to "Anyone with the link".`);
-          const buf = await resp.arrayBuffer();
-          await ffmpeg.writeFile(fname, new Uint8Array(buf));
-        }
-        fileNames.push(fname);
-      }
-
-      // Pass 1: normalize each segment to a consistent format
-      setStatus("normalizing");
-      const normalizedNames = [];
-      for (let i = 0; i < fileNames.length; i++) {
-        const fname = fileNames[i];
-        const normName = `norm_${i}.mp4`;
-        // Scale to consistent size (preserve aspect ratio, pad to 1080x1920), force 30fps, yuv420p
-        const vf = "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,fps=30,format=yuv420p";
-        let r = await ffmpeg.exec([
-          "-i", fname,
-          "-vf", vf,
-          "-c:v", "libx264", "-preset", "ultrafast",
-          "-map", "0:v:0", "-map", "0:a:0",
-          "-c:a", "aac", "-ar", "44100", "-ac", "2",
-          normName
-        ]);
-        if (r !== 0) {
-          // Retry without audio (add silence)
-          r = await ffmpeg.exec([
-            "-i", fname,
-            "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
-            "-vf", vf,
-            "-c:v", "libx264", "-preset", "ultrafast",
-            "-map", "0:v:0", "-map", "1:a",
-            "-c:a", "aac", "-ar", "44100", "-ac", "2",
-            "-shortest", normName
-          ]);
-          if (r !== 0) throw new Error(`Could not normalize segment ${i + 1}. FFmpeg log:\n${ffmpegLogs.slice(-10).join("\n")}`);
-        }
-        normalizedNames.push(normName);
-      }
-
-      // Pass 2: concat using demuxer (stream copy — fast, no re-encode needed)
-      setStatus("stitching");
-      const listContent = normalizedNames.map(f => `file '${f}'`).join("\n");
-      await ffmpeg.writeFile("concat_list.txt", listContent);
-      const ret = await ffmpeg.exec([
-        "-f", "concat", "-safe", "0", "-i", "concat_list.txt",
-        "-c", "copy",
-        "-movflags", "+faststart",
-        "out.mp4"
-      ]);
-      if (ret !== 0) throw new Error(`FFmpeg concat failed with code ${ret}.\n${ffmpegLogs.slice(-10).join("\n")}`);
-      try { await ffmpeg.deleteFile("concat_list.txt"); } catch {}
-      for (const f of normalizedNames) { try { await ffmpeg.deleteFile(f); } catch {} }
-
-      const data = await ffmpeg.readFile("out.mp4");
-      const blob = new Blob([data], { type: "video/mp4" });
-      const url = URL.createObjectURL(blob);
-      setOutputUrl(url);
-      setOutputFilename((selectedCombo.filename || selectedCombo.autoFilename || "stitched") + ".mp4");
-      setStatus("done");
-
-      for (const fname of fileNames) { try { await ffmpeg.deleteFile(fname); } catch {} }
-      try { await ffmpeg.deleteFile("list.txt"); } catch {}
-      try { await ffmpeg.deleteFile("out.mp4"); } catch {}
-    } catch (e) {
-      setErrorMsg(e?.message || "Unknown error during stitching.");
-      setStatus("error");
+  const ensureFFmpeg = async () => {
+    if (!ffmpegRef.current) {
+      const { FFmpeg } = await import("@ffmpeg/ffmpeg");
+      ffmpegRef.current = new FFmpeg();
     }
+    if (!ffmpegLoaded) {
+      const { toBlobURL } = await import("@ffmpeg/util");
+      const base = "https://unpkg.com/@ffmpeg/core@0.12.9/dist/esm";
+      await ffmpegRef.current.load({
+        coreURL: await toBlobURL(`${base}/ffmpeg-core.js`, "text/javascript"),
+        wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`, "application/wasm"),
+      });
+      setFfmpegLoaded(true);
+    }
+    return ffmpegRef.current;
   };
 
-  const handleDownload = () => {
-    if (!outputUrl) return;
-    const a = document.createElement("a");
-    a.href = outputUrl;
-    a.download = outputFilename;
-    a.click();
+  const stitchOne = async (combo) => {
+    const ffmpeg = await ensureFFmpeg();
+    const { fetchFile } = await import("@ffmpeg/util");
+    const logs = [];
+    const logHandler = ({ message }) => logs.push(message);
+    ffmpeg.on("log", logHandler);
+    const slots = getSlots(combo);
+    const safe = combo.key.replace(/[^a-z0-9]/gi, "_");
+
+    // Fetch / write segment files
+    setStatusLabel("Fetching clips & writing segment files…");
+    const fileNames = [];
+    for (const slot of slots) {
+      const fname = `seg_${safe}_${slot.id}.mp4`;
+      const file = uploadedFiles[slot.id];
+      const asset = assetMap[slot.id];
+      if (file) {
+        await ffmpeg.writeFile(fname, await fetchFile(file));
+      } else if (asset?.driveUrl) {
+        const resp = await fetch(`/api/proxy?url=${encodeURIComponent(asset.driveUrl)}`);
+        if (!resp.ok) throw new Error(`Failed to download ${slot.id}: HTTP ${resp.status}`);
+        const ct = resp.headers.get("content-type") || "";
+        if (ct.includes("text/html")) throw new Error(`Drive returned HTML for ${slot.id} — check sharing is set to "Anyone with the link".`);
+        await ffmpeg.writeFile(fname, new Uint8Array(await resp.arrayBuffer()));
+      } else {
+        throw new Error(`No video source for segment ${slot.id} — add a Drive URL or upload a file.`);
+      }
+      fileNames.push(fname);
+    }
+
+    // Normalize each segment
+    setStatusLabel("Normalizing segments…");
+    const vf = "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,fps=30,format=yuv420p";
+    const normNames = [];
+    for (let i = 0; i < fileNames.length; i++) {
+      const normName = `norm_${safe}_${i}.mp4`;
+      let r = await ffmpeg.exec(["-i", fileNames[i], "-vf", vf, "-c:v", "libx264", "-preset", "ultrafast", "-map", "0:v:0", "-map", "0:a:0", "-c:a", "aac", "-ar", "44100", "-ac", "2", normName]);
+      if (r !== 0) {
+        r = await ffmpeg.exec(["-i", fileNames[i], "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-vf", vf, "-c:v", "libx264", "-preset", "ultrafast", "-map", "0:v:0", "-map", "1:a", "-c:a", "aac", "-ar", "44100", "-ac", "2", "-shortest", normName]);
+        if (r !== 0) throw new Error(`Could not normalize segment ${i + 1}.\n${logs.slice(-5).join("\n")}`);
+      }
+      normNames.push(normName);
+    }
+
+    // Concat
+    setStatusLabel("Stitching clips together…");
+    const outName = `out_${safe}.mp4`;
+    await ffmpeg.writeFile("concat_list.txt", normNames.map(f => `file '${f}'`).join("\n"));
+    const ret = await ffmpeg.exec(["-f", "concat", "-safe", "0", "-i", "concat_list.txt", "-c", "copy", "-movflags", "+faststart", outName]);
+    if (ret !== 0) throw new Error(`FFmpeg concat failed.\n${logs.slice(-5).join("\n")}`);
+
+    // Download
+    const data = await ffmpeg.readFile(outName);
+    const url = URL.createObjectURL(new Blob([data], { type: "video/mp4" }));
+    const dlName = (combo.filename || combo.autoFilename || combo.key) + ".mp4";
+    const a = document.createElement("a"); a.href = url; a.download = dlName; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 8000);
+
+    // Cleanup
+    for (const f of [...fileNames, ...normNames, "concat_list.txt", outName]) { try { await ffmpeg.deleteFile(f); } catch {} }
+    ffmpeg.off("log", logHandler);
   };
 
-  const handleReset = () => {
-    setSelectedKey(null);
-    setUploadedFiles({});
-    setStatus("idle");
-    setErrorMsg("");
-    if (outputUrl) { URL.revokeObjectURL(outputUrl); setOutputUrl(null); }
-    setOutputFilename("");
+  const handleStitchSelected = async () => {
+    const toProcess = validCombos.filter(c => selectedKeys.has(c.key));
+    if (!toProcess.length) return;
+    setBatchRunning(true);
+    setStatusLabel("Loading FFmpeg (one-time ~10 MB download)…");
+    try { await ensureFFmpeg(); } catch(e) { setBatchRunning(false); setStatusLabel(""); return; }
+    for (const combo of toProcess) {
+      setCurrentlyStitching(combo.key);
+      setBatchStatus(prev => ({ ...prev, [combo.key]: "stitching" }));
+      try {
+        await stitchOne(combo);
+        setBatchStatus(prev => ({ ...prev, [combo.key]: "done" }));
+        onMarkCreated && onMarkCreated(combo.key);
+      } catch (e) {
+        setBatchStatus(prev => ({ ...prev, [combo.key]: "error" }));
+        setBatchErrors(prev => ({ ...prev, [combo.key]: e?.message || "Unknown error" }));
+      }
+    }
+    setCurrentlyStitching(null);
+    setBatchRunning(false);
+    setStatusLabel("");
   };
 
-  const statusLabel = { loading: "Loading FFmpeg (one-time ~10 MB download)…", writing: "Fetching clips & writing segment files…", normalizing: "Normalizing segments (adding audio if missing)…", stitching: "Stitching clips together…" }[status] || null;
+  const toggleKey = key => setSelectedKeys(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  const allSelected = validCombos.length > 0 && validCombos.every(c => selectedKeys.has(c.key));
+  const selectedCount = validCombos.filter(c => selectedKeys.has(c.key)).length;
+  const readySelected = validCombos.filter(c => selectedKeys.has(c.key) && comboReadiness(c).allReady).length;
+  const notReadySelected = selectedCount - readySelected;
 
   return (
     <div className="max-w-3xl space-y-6">
       <div>
         <h2 className="text-white font-black text-lg mb-1">Video Stitcher</h2>
-        <p className="text-zinc-400 text-sm">Select an AI-approved combo, upload each segment's video file, then stitch them into one MP4 — no upload, no server, runs entirely in your browser.</p>
+        <p className="text-zinc-400 text-sm">Select AI-approved combos and stitch them into MP4s — runs in your browser. Each segment pulls from its Drive URL automatically, or you can upload a file directly.</p>
       </div>
 
       {validCombos.length === 0 && (
         <div className="text-center py-16 space-y-2">
           <div className="text-zinc-500 text-sm">No approved combos yet.</div>
-          <div className="text-zinc-600 text-xs">Run AI Validate first — only valid combos can be stitched.</div>
+          <div className="text-zinc-600 text-xs">Run AI Validate and lock results first.</div>
         </div>
       )}
 
       {validCombos.length > 0 && (
         <>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-3">
-            <label className="text-xs text-zinc-400 uppercase tracking-widest font-semibold">Select combo to stitch</label>
-            <select
-              value={selectedKey || ""}
-              onChange={e => { setSelectedKey(e.target.value || null); setUploadedFiles({}); setStatus("idle"); if (outputUrl) { URL.revokeObjectURL(outputUrl); setOutputUrl(null); } }}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500"
-            >
-              <option value="">— Choose a combo —</option>
-              {validCombos.map(c => (
-                <option key={c.key} value={c.key}>
-                  {[c.preHookId, c.hookId, c.leadId, c.bodyId, c.ctaId].filter(Boolean).join(" + ")}
-                  {c.hookDescriptor ? ` (${c.hookDescriptor})` : ""}{" · "}{c.hookTag}
-                </option>
-              ))}
-            </select>
-            {selectedCombo && (
-              <div className="text-xs text-zinc-500">
-                Output filename: <span className="text-zinc-300 font-mono">{selectedCombo.filename || selectedCombo.autoFilename}.mp4</span>
-              </div>
+          {/* Toolbar */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={allSelected}
+                ref={el => { if (el) el.indeterminate = selectedCount > 0 && !allSelected; }}
+                onChange={() => setSelectedKeys(allSelected ? new Set() : new Set(validCombos.map(c => c.key)))}
+                className="accent-amber-500 w-3.5 h-3.5"/>
+              <span className="text-sm text-zinc-400">{validCombos.length} valid combo{validCombos.length !== 1 ? "s" : ""}</span>
+            </label>
+            {selectedCount > 0 && (
+              <button onClick={handleStitchSelected} disabled={batchRunning || readySelected === 0}
+                className="px-4 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed text-black font-bold rounded-lg text-sm flex items-center gap-2">
+                {batchRunning
+                  ? <><span className="inline-block animate-spin">⟳</span> Stitching…</>
+                  : `▶ Stitch ${selectedCount} selected`}
+              </button>
+            )}
+            {notReadySelected > 0 && !batchRunning && (
+              <span className="text-xs text-orange-400">⚠ {notReadySelected} selected missing video sources</span>
+            )}
+            {statusLabel && (
+              <span className="text-xs text-zinc-400 flex items-center gap-1.5">
+                <span className="inline-block animate-spin text-amber-400">⟳</span>{statusLabel}
+              </span>
             )}
           </div>
 
-          {selectedCombo && (
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-4">
-              <div className="flex items-center justify-between">
-                <label className="text-xs text-zinc-400 uppercase tracking-widest font-semibold">Segment files — Drive URLs auto-fetched</label>
-                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${allReady ? "bg-emerald-500/20 text-emerald-400" : "bg-zinc-800 text-zinc-500"}`}>
-                  {filesReady}/{filesTotal} ready
-                </span>
-              </div>
-              <div className="space-y-2">
-                {segmentSlots.map((slot, i) => {
-                  const asset = assetMap[slot.id];
-                  const file = uploadedFiles[slot.id];
-                  return (
-                    <div key={slot.id} className={`rounded-lg border ${slot.border} ${slot.bg} p-3`}>
-                      <div className="flex items-center gap-3 flex-wrap">
-                        <div className="flex items-center gap-2 shrink-0 min-w-0">
-                          <span className="text-zinc-600 text-xs font-mono w-4 text-right shrink-0">{i + 1}.</span>
-                          <span className={`font-mono font-bold text-sm shrink-0 ${slot.idColor}`}>{slot.id}</span>
-                          <span className="text-xs text-zinc-500 uppercase tracking-wider shrink-0">{slot.label}</span>
-                          {asset?.descriptor && <span className="text-xs text-zinc-600 italic truncate">"{asset.descriptor}"</span>}
-                        </div>
-                        <div className="flex items-center gap-2 ml-auto shrink-0">
-                          {file ? (
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs text-emerald-400 font-medium truncate max-w-36" title={file.name}>✓ {file.name}</span>
-                              <button onClick={() => setUploadedFiles(prev => { const n = {...prev}; delete n[slot.id]; return n; })}
-                                className="text-zinc-600 hover:text-red-400 text-sm leading-none shrink-0">✕</button>
-                            </div>
-                          ) : asset?.driveUrl ? (
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs text-emerald-400 font-medium">🔗 Drive linked</span>
-                              <label className="cursor-pointer">
-                                <span className="px-2 py-1 bg-zinc-800 border border-zinc-700 hover:border-zinc-500 text-zinc-500 text-xs rounded-lg transition-colors inline-block whitespace-nowrap">
-                                  Override…
+          {/* Combo list */}
+          <div className="space-y-2">
+            {validCombos.map(combo => {
+              const { ready, total, allReady } = comboReadiness(combo);
+              const st = batchStatus[combo.key];
+              const isSelected = selectedKeys.has(combo.key);
+              const isActive = currentlyStitching === combo.key;
+              const slots = getSlots(combo);
+              return (
+                <div key={combo.key} className={`rounded-xl border transition-colors ${
+                  isActive      ? "border-amber-500/60 bg-amber-500/8" :
+                  st === "done" ? "border-emerald-500/40 bg-emerald-500/8" :
+                  st === "error"? "border-red-500/40 bg-red-500/8" :
+                  isSelected    ? "border-zinc-600 bg-zinc-800/60" :
+                                  "border-zinc-700/50 bg-zinc-800/40"}`}>
+                  <div className="flex items-center gap-3 p-3 flex-wrap">
+                    <input type="checkbox" checked={isSelected} onChange={() => toggleKey(combo.key)} disabled={batchRunning}
+                      className="accent-amber-500 w-3.5 h-3.5 shrink-0"/>
+                    <div className="flex items-center gap-1 flex-1 min-w-0 flex-wrap">
+                      {[combo.preHookId, combo.hookId, combo.leadId, combo.bodyId, combo.ctaId].filter(Boolean).map((id, i, arr) => (
+                        <span key={id} className="flex items-center gap-1">
+                          <span className="font-mono text-amber-400 text-xs font-bold">{id}</span>
+                          {i < arr.length - 1 && <span className="text-zinc-600 text-xs">+</span>}
+                        </span>
+                      ))}
+                      <Tag tag={combo.hookTag}/>
+                    </div>
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${allReady ? "text-emerald-400 bg-emerald-500/15 border border-emerald-500/30" : "text-orange-400 bg-orange-500/15 border border-orange-500/30"}`}>
+                      {allReady ? `✓ ${ready}/${total} ready` : `⚠ ${ready}/${total} have video`}
+                    </span>
+                    {isActive && <span className="text-xs text-amber-400 animate-pulse">⟳ Stitching…</span>}
+                    {st === "done"  && <span className="text-xs text-emerald-400 font-bold">✅ Done — downloading</span>}
+                    {st === "error" && <span className="text-xs text-red-400 font-bold">❌ Error</span>}
+                  </div>
+                  {st === "error" && batchErrors[combo.key] && (
+                    <div className="mx-3 mb-3 text-xs text-red-400 bg-red-500/10 rounded px-2 py-1.5 whitespace-pre-wrap">{batchErrors[combo.key]}</div>
+                  )}
+                  {/* Segment rows — always visible when selected */}
+                  {isSelected && (
+                    <div className="px-3 pb-3 space-y-1.5 border-t border-zinc-700/40 pt-2.5 mt-0.5">
+                      {slots.map(slot => {
+                        const asset = assetMap[slot.id];
+                        const file = uploadedFiles[slot.id];
+                        const hasDrive = !!asset?.driveUrl;
+                        const hasFile = !!file;
+                        const ready = hasDrive || hasFile;
+                        return (
+                          <div key={slot.id} className="flex items-center gap-2 text-xs">
+                            <span className="font-mono text-amber-400 w-10 shrink-0">{slot.id}</span>
+                            <span className="text-zinc-500 w-12 shrink-0">{slot.label}</span>
+                            {hasFile ? (
+                              <span className="flex items-center gap-1.5 text-emerald-400">
+                                📁 {file.name}
+                                <button onClick={() => setUploadedFiles(p => { const n={...p}; delete n[slot.id]; return n; })}
+                                  className="text-zinc-600 hover:text-red-400 text-sm leading-none ml-1">✕</button>
+                              </span>
+                            ) : hasDrive ? (
+                              <span className="flex items-center gap-1.5 text-emerald-400">
+                                🔗 Drive linked
+                                <label className="cursor-pointer ml-1">
+                                  <span className="px-1.5 py-0.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-400 rounded text-xs">Override…</span>
+                                  <input type="file" accept="video/mp4,video/quicktime,.mp4,.mov" className="hidden"
+                                    onChange={e => { const f=e.target.files?.[0]; if(f) setUploadedFiles(p=>({...p,[slot.id]:f})); }}/>
+                                </label>
+                              </span>
+                            ) : (
+                              <label className="cursor-pointer flex items-center gap-1.5 text-orange-400">
+                                ⚠ No video —
+                                <span className="px-2 py-0.5 bg-zinc-700 hover:bg-zinc-600 border border-zinc-600 hover:border-amber-500 text-zinc-300 rounded transition-colors">
+                                  Upload file
                                 </span>
                                 <input type="file" accept="video/mp4,video/quicktime,.mp4,.mov" className="hidden"
-                                  onChange={e => handleFileChange(slot.id, e.target.files?.[0] || null)} />
+                                  onChange={e => { const f=e.target.files?.[0]; if(f) setUploadedFiles(p=>({...p,[slot.id]:f})); }}/>
                               </label>
-                            </div>
-                          ) : (
-                            <label className="cursor-pointer">
-                              <span className="px-3 py-1.5 bg-zinc-800 border border-zinc-700 hover:border-amber-500 text-zinc-300 text-xs font-medium rounded-lg transition-colors inline-block whitespace-nowrap">
-                                Choose file…
-                              </span>
-                              <input type="file" accept="video/mp4,video/quicktime,.mp4,.mov" className="hidden"
-                                onChange={e => handleFileChange(slot.id, e.target.files?.[0] || null)} />
-                            </label>
-                          )}
-                        </div>
-                      </div>
-                      {asset?.text && (
-                        <p className="text-zinc-600 text-xs mt-2 leading-snug ml-6 italic">"{asset.text}"</p>
-                      )}
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
-                  );
-                })}
-              </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
 
-              <div className="pt-3 border-t border-zinc-800 space-y-3">
-                {statusLabel && (
-                  <div className="flex items-center gap-3 text-sm text-zinc-400">
-                    <span className="inline-block animate-spin text-amber-400 shrink-0">⟳</span>
-                    {statusLabel}
-                  </div>
-                )}
-                {status === "error" && (
-                  <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">❌ {errorMsg}</div>
-                )}
-                {status === "done" && outputUrl && (
-                  <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl space-y-3">
-                    <div className="text-emerald-400 font-bold text-sm">✅ Stitched successfully!</div>
-                    <div className="flex gap-2 flex-wrap">
-                      <button onClick={handleDownload}
-                        className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black text-sm font-bold rounded-lg transition-colors">
-                        ⬇ Download {outputFilename}
-                      </button>
-                      <button onClick={() => onMarkCreated(selectedCombo.key)}
-                        className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 text-sm font-medium rounded-lg transition-colors">
-                        ✓ Mark as created in Tracker
-                      </button>
-                      <button onClick={handleReset}
-                        className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-500 text-sm font-medium rounded-lg transition-colors">
-                        Stitch another
-                      </button>
-                    </div>
-                  </div>
-                )}
-                {status !== "done" && (
-                  <button onClick={handleStitch}
-                    disabled={!allReady || ["loading","writing","stitching"].includes(status)}
-                    className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed text-black font-bold rounded-lg text-sm transition-colors">
-                    {["loading","writing","stitching"].includes(status) ? "Stitching…" : `▶ Stitch ${filesTotal} clips`}
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
+          <div className="p-3 bg-zinc-800/50 border border-zinc-700/40 rounded-lg text-xs text-zinc-500 leading-relaxed">
+            <span className="text-zinc-300 font-medium">💡 Tip:</span> Set a Google Drive share link on each asset in the Asset Library and videos pull automatically — no manual upload needed. Sharing must be set to <span className="text-zinc-300">"Anyone with the link → Viewer"</span>. You can also upload files directly per segment. Both work together.
+          </div>
         </>
       )}
     </div>
