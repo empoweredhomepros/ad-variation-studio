@@ -728,7 +728,7 @@ function LibraryTab({ preHooks,setPreHooks,hooks,transitions,setTransitions,lead
 
 // ── Validation prompts by mode ─────────────────────────────────────────────
 function buildPrompt(hook, lead, transition, body, cta, mode) {
-  const transPart=transition?`\nTransition: "${transition.text}"`:""
+  const transPart=transition?`\nTransition: "${transition.text}"${transition.universal?" (universal — assume this bridge always works; evaluate hook/lead/body/CTA flow only)":""}`:""
   const bodyPart=body?`\nBody: "${body.text}"`:""
   const ctaPart=cta?`\nCTA: "${cta.text}"`:""
   if (mode==="grammar") {
@@ -964,7 +964,7 @@ function LockModal({ validCount, invalidCount, manualValidCount, onConfirm, onCa
   );
 }
 
-function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,validationStore,setValidationStore,locked,setLocked,validationMode,setValidationMode,anthropicKey }) {
+function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,validationStore,setValidationStore,locked,setLocked,validationMode,setValidationMode,anthropicKey,setTab }) {
   const [scopeTagSet,setScopeTagSet]=useState(new Set());
   const [preHookMode,setPreHookMode]=useState("none");
   const [preHookTagSet,setPreHookTagSet]=useState(new Set()); // independent filter
@@ -1039,16 +1039,11 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
       if(pauseRef.current){ setPendingQueue(tasks.slice(i)); setPaused(true); setRunning(false); return; }
       const {ph,h,t,l,b,c,key}=tasks[i];
       const baseEntry={key,preHookId:ph?.id||null,hookId:h.id,transitionId:t?.id||null,leadId:l.id,bodyId:b?.id||null,ctaId:c?.id||null,hookTag:h.tag,leadTag:l.tag,mode:validationMode};
-      // Universal transitions auto-approve without calling the API
-      if(t?.universal===true){
-        setValidationStore(prev=>({...prev,[key]:{...baseEntry,valid:true,reason:"Universal transition — automatically approved.",manual:false}}));
-      } else {
-        try {
-          const res=await callValidate(h,l,t,b,c,validationMode,anthropicKey);
-          setValidationStore(prev=>({...prev,[key]:{...baseEntry,valid:res.valid,reason:res.reason,manual:false}}));
-        } catch(err) {
-          setValidationStore(prev=>({...prev,[key]:{...baseEntry,valid:null,reason:`Error: ${err?.message||"Unknown error"}`,manual:false}}));
-        }
+      try {
+        const res=await callValidate(h,l,t,b,c,validationMode,anthropicKey);
+        setValidationStore(prev=>({...prev,[key]:{...baseEntry,valid:res.valid,reason:res.reason,manual:false}}));
+      } catch(err) {
+        setValidationStore(prev=>({...prev,[key]:{...baseEntry,valid:null,reason:`Error: ${err?.message||"Unknown error"}`,manual:false}}));
       }
       setProgress({done:i+1,total:tasks.length});
     }
@@ -1484,6 +1479,11 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
                   onClick={()=>{ if(!window.confirm(`Delete ${selectedResultKeys.size} result${selectedResultKeys.size!==1?"s":""}? These combos will be re-validated on the next run.`)) return; setValidationStore(prev=>{ const n={...prev}; selectedResultKeys.forEach(k=>delete n[k]); return n; }); setSelectedResultKeys(new Set()); }}
                   className="px-3 py-1.5 bg-zinc-800 hover:bg-red-500/20 border border-zinc-700 hover:border-red-500/40 text-zinc-400 hover:text-red-400 text-xs font-semibold rounded-lg transition-colors">
                   🗑 Delete
+                </button>
+                <button
+                  onClick={()=>{ setValidationStore(prev=>{ const n={...prev}; selectedResultKeys.forEach(k=>{ if(n[k]) n[k]={...n[k],valid:true,manual:true,reviewed:true,reason:n[k].manual?n[k].reason:`Original AI verdict: "${n[k].reason}" — manually approved & moved to tracker.`}; }); return n; }); setSelectedResultKeys(new Set()); setTab("tracker"); }}
+                  className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 border border-amber-500 text-black text-xs font-bold rounded-lg transition-colors">
+                  ➡ Move to Tracker
                 </button>
               </div>
               <button onClick={()=>setSelectedResultKeys(new Set())}
@@ -3070,7 +3070,7 @@ export default function App() {
           </div>
         )}
         {tab==="library" &&<LibraryTab {...{preHooks,setPreHooks,hooks,transitions,setTransitions,leads,bodies,ctas,setHooks,setLeads,setBodies,setCtas,validationStore,speakers,setSpeakers}}/>}
-        {tab==="validate"&&<ValidateTab {...{preHooks,hooks,transitions,leads,bodies,ctas,speakers,validationStore,setValidationStore,locked,setLocked,validationMode,setValidationMode,anthropicKey}}/>}
+        {tab==="validate"&&<ValidateTab {...{preHooks,hooks,transitions,leads,bodies,ctas,speakers,validationStore,setValidationStore,locked,setLocked,validationMode,setValidationMode,anthropicKey,setTab}}/>}
         {tab==="tracker" &&<TrackerTab combos={combos} onToggle={toggleCombo} onUrlChange={updateUrl} onFilenameChange={updateFilename} validationStore={validationStore} setValidationStore={setValidationStore} validPairs={validPairs} locked={locked} preHooks={preHooks} hooks={hooks} leads={leads} bodies={bodies} ctas={ctas} sheetsUrl={zapierUrl||sheetyUrl||sheetsUrl} syncState={syncState} onSyncRow={syncRow} onSyncAll={syncAll} buildRow={buildRow} setStitchQueue={setStitchQueue} setTab={setTab}/>}
         {tab==="stitch"  &&<StitchTab combos={combos} validationStore={validationStore} preHooks={preHooks} hooks={hooks} transitions={transitions} leads={leads} bodies={bodies} ctas={ctas} onMarkCreated={toggleCombo} stitchQueue={stitchQueue} setStitchQueue={setStitchQueue}/>}
         {tab==="settings"&&<SettingsTab sheetsUrl={sheetsUrl} setSheetsUrl={setSheetsUrl} sheetyUrl={sheetyUrl} setSheetyUrl={setSheetyUrl} sheetyToken={sheetyToken} setSheetyToken={setSheetyToken} zapierUrl={zapierUrl} setZapierUrl={setZapierUrl}/>}
