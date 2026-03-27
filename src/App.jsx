@@ -785,16 +785,20 @@ function AssetChip({ item, selected, onToggle }) {
 }
 
 // ── Result card — dropdown override, expandable preview ───────────────────
-function ResultCard({ result, hookText, leadText, bodyText, ctaText, onOverride, onMarkReviewed, validationMode, rowNum }) {
+function ResultCard({ result, hookText, leadText, bodyText, ctaText, onOverride, onMarkReviewed, validationMode, rowNum, selected, onSelect }) {
   const [expanded,setExpanded]=useState(false);
   const isManual=result.manual;
   const isReviewed=!!result.reviewed;
-  const borderColor=isReviewed?"border-teal-500/40":isManual?"border-amber-500/40":result.valid===true?"border-emerald-500/25":result.valid===false?"border-red-500/25":"border-zinc-700/40";
-  const bgColor=isManual?"bg-amber-500/8":result.valid===true?"bg-emerald-500/8":result.valid===false?"bg-red-500/8":"bg-zinc-800/40";
+  const borderColor=selected?"border-amber-500/60":isReviewed?"border-teal-500/40":isManual?"border-amber-500/40":result.valid===true?"border-emerald-500/25":result.valid===false?"border-red-500/25":"border-zinc-700/40";
+  const bgColor=selected?"bg-amber-500/8":isManual?"bg-amber-500/8":result.valid===true?"bg-emerald-500/8":result.valid===false?"bg-red-500/8":"bg-zinc-800/40";
 
   return (
     <div className={`rounded-xl border ${bgColor} ${borderColor} overflow-hidden`}>
       <div className="flex items-center gap-2 p-3 flex-wrap">
+        {/* Select checkbox */}
+        {onSelect&&<input type="checkbox" checked={!!selected} onChange={e=>onSelect(e.target.checked)}
+          onClick={e=>e.stopPropagation()}
+          className="accent-amber-500 w-3.5 h-3.5 shrink-0 cursor-pointer"/>}
         {/* Row number */}
         {rowNum!=null&&<span className="text-zinc-600 text-xs font-mono shrink-0 w-6 text-right">#{rowNum}</span>}
 
@@ -958,6 +962,7 @@ function ValidateTab({ preHooks,hooks,leads,bodies,ctas,speakers,validationStore
   const [resSpeakerFilter,setResSpeakerFilter]=useState("All");
   const [resSearch,setResSearch]=useState("");
   const [validFilter,setValidFilter]=useState("All");
+  const [selectedResultKeys,setSelectedResultKeys]=useState(new Set());
 
   // Pre-hooks use their OWN tag filter — independent of scopeTagSet
   // so an AI pre-hook can pair with Founder hooks etc.
@@ -1357,9 +1362,22 @@ function ValidateTab({ preHooks,hooks,leads,bodies,ctas,speakers,validationStore
               ))}
             </div>
           </div>
-          {/* Clear / Restart actions */}
-          <div className="flex items-center gap-2 mb-4 flex-wrap">
-            <div className="text-xs text-zinc-500">{filteredResults.length} results shown</div>
+          {/* Count + select-all + clear/restart row */}
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
+            {/* Select all checkbox */}
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              <input type="checkbox"
+                checked={filteredResults.length>0&&filteredResults.every(r=>selectedResultKeys.has(r.key))}
+                ref={el=>{ if(el) el.indeterminate=filteredResults.some(r=>selectedResultKeys.has(r.key))&&!filteredResults.every(r=>selectedResultKeys.has(r.key)); }}
+                onChange={e=>{
+                  if(e.target.checked) setSelectedResultKeys(prev=>new Set([...prev,...filteredResults.map(r=>r.key)]));
+                  else setSelectedResultKeys(prev=>{ const n=new Set(prev); filteredResults.forEach(r=>n.delete(r.key)); return n; });
+                }}
+                className="accent-amber-500 w-3.5 h-3.5 cursor-pointer"/>
+              <span className="text-xs text-zinc-500">
+                {selectedResultKeys.size>0?`${selectedResultKeys.size} selected`:`${filteredResults.length} results`}
+              </span>
+            </label>
             <div className="flex gap-2 ml-auto">
               <button
                 onClick={()=>{ const invalids=Object.keys(validationStore).filter(k=>validationStore[k].valid===false); setValidationStore(prev=>{ const next={...prev}; invalids.forEach(k=>delete next[k]); return next; }); setLocked(false); }}
@@ -1367,15 +1385,51 @@ function ValidateTab({ preHooks,hooks,leads,bodies,ctas,speakers,validationStore
                 🗑 Clear Invalids
               </button>
               <button
-                onClick={()=>{ if(!window.confirm("Clear ALL validation results and start over?")) return; setValidationStore({}); setLocked(false); setPaused(false); setPendingQueue([]); setProgress({done:0,total:0}); }}
+                onClick={()=>{ if(!window.confirm("Clear ALL validation results and start over?")) return; setValidationStore({}); setLocked(false); setPaused(false); setPendingQueue([]); setProgress({done:0,total:0}); setSelectedResultKeys(new Set()); }}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-amber-500/40 text-zinc-400 hover:text-amber-400 text-xs font-medium rounded-lg transition-all">
                 ↺ Restart Validation
               </button>
             </div>
           </div>
+
+          {/* Floating bulk action bar */}
+          {selectedResultKeys.size>0&&(
+            <div className="sticky top-2 z-30 mb-3 flex items-center gap-2 flex-wrap p-2.5 bg-zinc-900 border border-amber-500/40 rounded-xl shadow-xl shadow-black/40">
+              <span className="text-amber-400 text-xs font-bold">{selectedResultKeys.size} selected</span>
+              <div className="flex gap-1.5 flex-wrap">
+                <button
+                  onClick={()=>{ setValidationStore(prev=>{ const n={...prev}; selectedResultKeys.forEach(k=>{ if(n[k]) n[k]={...n[k],valid:true,manual:true,reviewed:true, reason:n[k].manual?n[k].reason:`Original AI verdict: "${n[k].reason}" — manually overridden.`}; }); return n; }); setSelectedResultKeys(new Set()); }}
+                  className="px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-400 text-xs font-semibold rounded-lg transition-colors">
+                  ✅ Mark Valid
+                </button>
+                <button
+                  onClick={()=>{ setValidationStore(prev=>{ const n={...prev}; selectedResultKeys.forEach(k=>{ if(n[k]) n[k]={...n[k],valid:false,manual:true,reviewed:true, reason:n[k].manual?n[k].reason:`Original AI verdict: "${n[k].reason}" — manually overridden.`}; }); return n; }); setSelectedResultKeys(new Set()); }}
+                  className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 text-red-400 text-xs font-semibold rounded-lg transition-colors">
+                  ❌ Mark Invalid
+                </button>
+                <button
+                  onClick={()=>{ setValidationStore(prev=>{ const n={...prev}; selectedResultKeys.forEach(k=>{ if(n[k]) n[k]={...n[k],reviewed:true}; }); return n; }); setSelectedResultKeys(new Set()); }}
+                  className="px-3 py-1.5 bg-teal-500/20 hover:bg-teal-500/30 border border-teal-500/40 text-teal-400 text-xs font-semibold rounded-lg transition-colors">
+                  ✓ Mark Reviewed
+                </button>
+                <button
+                  onClick={()=>{ if(!window.confirm(`Delete ${selectedResultKeys.size} result${selectedResultKeys.size!==1?"s":""}? These combos will be re-validated on the next run.`)) return; setValidationStore(prev=>{ const n={...prev}; selectedResultKeys.forEach(k=>delete n[k]); return n; }); setSelectedResultKeys(new Set()); }}
+                  className="px-3 py-1.5 bg-zinc-800 hover:bg-red-500/20 border border-zinc-700 hover:border-red-500/40 text-zinc-400 hover:text-red-400 text-xs font-semibold rounded-lg transition-colors">
+                  🗑 Delete
+                </button>
+              </div>
+              <button onClick={()=>setSelectedResultKeys(new Set())}
+                className="ml-auto text-zinc-500 hover:text-white text-xs px-2 py-1 rounded transition-colors">
+                ✕ Clear
+              </button>
+            </div>
+          )}
+
           <div className="space-y-2">
             {filteredResults.map((r,i)=>(
               <ResultCard key={r.key||i} result={r} rowNum={i+1}
+                selected={selectedResultKeys.has(r.key)}
+                onSelect={checked=>setSelectedResultKeys(prev=>{ const n=new Set(prev); checked?n.add(r.key):n.delete(r.key); return n; })}
                 hookText={hookMap[r.hookId]} leadText={leadMap[r.leadId]}
                 bodyText={r.bodyId?bodyMap[r.bodyId]:null} ctaText={r.ctaId?ctaMap[r.ctaId]:null}
                 onOverride={handleOverride} onMarkReviewed={handleMarkReviewed} validationMode={r.mode||validationMode}/>
