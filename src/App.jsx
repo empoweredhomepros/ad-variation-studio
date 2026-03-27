@@ -1263,7 +1263,7 @@ function ValidateTab({ preHooks,hooks,leads,bodies,ctas,validationStore,setValid
           )}
 
           {/* Lock button — appears when there are results and not currently running */}
-          {results.length>0&&!running&&!locked&&(
+          {Object.keys(validationStore).length>0&&!running&&!locked&&(
             <div className="pt-2 border-t border-zinc-800">
               <button onClick={()=>setShowLockModal(true)}
                 className="flex items-center gap-2 px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-amber-500/40 text-zinc-300 hover:text-white text-sm font-medium rounded-lg transition-all">
