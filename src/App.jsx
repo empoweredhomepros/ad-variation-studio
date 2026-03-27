@@ -785,15 +785,19 @@ function AssetChip({ item, selected, onToggle }) {
 }
 
 // ── Result card — dropdown override, expandable preview ───────────────────
-function ResultCard({ result, hookText, leadText, bodyText, ctaText, onOverride, validationMode }) {
+function ResultCard({ result, hookText, leadText, bodyText, ctaText, onOverride, onMarkReviewed, validationMode, rowNum }) {
   const [expanded,setExpanded]=useState(false);
   const isManual=result.manual;
-  const borderColor=isManual?"border-amber-500/40":result.valid===true?"border-emerald-500/25":result.valid===false?"border-red-500/25":"border-zinc-700/40";
+  const isReviewed=!!result.reviewed;
+  const borderColor=isReviewed?"border-teal-500/40":isManual?"border-amber-500/40":result.valid===true?"border-emerald-500/25":result.valid===false?"border-red-500/25":"border-zinc-700/40";
   const bgColor=isManual?"bg-amber-500/8":result.valid===true?"bg-emerald-500/8":result.valid===false?"bg-red-500/8":"bg-zinc-800/40";
 
   return (
     <div className={`rounded-xl border ${bgColor} ${borderColor} overflow-hidden`}>
       <div className="flex items-center gap-2 p-3 flex-wrap">
+        {/* Row number */}
+        {rowNum!=null&&<span className="text-zinc-600 text-xs font-mono shrink-0 w-6 text-right">#{rowNum}</span>}
+
         {/* Status icon */}
         <span className="text-base shrink-0">{result.valid===true?"✅":result.valid===false?"❌":"⚠️"}</span>
 
@@ -808,6 +812,7 @@ function ResultCard({ result, hookText, leadText, bodyText, ctaText, onOverride,
 
         <Tag tag={result.hookTag}/>
         {isManual&&<span className="text-xs bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1.5 py-0.5 rounded-full shrink-0">Manual</span>}
+        {isReviewed&&<span className="text-xs bg-teal-500/20 text-teal-400 border border-teal-500/30 px-1.5 py-0.5 rounded-full shrink-0">✓ Reviewed</span>}
 
         {/* Reason */}
         <p className="text-zinc-400 text-xs leading-relaxed flex-1 min-w-0">{result.reason}</p>
@@ -820,10 +825,21 @@ function ResultCard({ result, hookText, leadText, bodyText, ctaText, onOverride,
             ${result.valid===true
               ?"bg-emerald-500/15 border-emerald-500/40 text-emerald-400"
               :"bg-red-500/15 border-red-500/40 text-red-400"}`}
-          style={{WebkitAppearance:"none",appearance:"none",paddingRight:"1.5rem",backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236b7280'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 6px center"}}>
+          style={{WebkitAppearance:"none",appearance:"none",paddingRight:"1.5rem",backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2020/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236b7280'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 6px center"}}>
           <option value="valid">✅ Valid</option>
           <option value="invalid">❌ Invalid</option>
         </select>
+
+        {/* Reviewed toggle */}
+        <button
+          onClick={()=>onMarkReviewed&&onMarkReviewed(result.key)}
+          title={isReviewed?"Mark as unreviewed":"Mark as reviewed"}
+          className={`shrink-0 text-xs px-2 py-1 rounded border font-medium transition-colors
+            ${isReviewed
+              ?"bg-teal-500/20 border-teal-500/40 text-teal-400 hover:bg-teal-500/10"
+              :"bg-zinc-800 border-zinc-700 text-zinc-500 hover:text-teal-400 hover:border-teal-500/40"}`}>
+          {isReviewed?"✓":"Check"}
+        </button>
 
         <button onClick={()=>setExpanded(v=>!v)} className="text-xs text-zinc-500 hover:text-zinc-200 transition-colors shrink-0 whitespace-nowrap">
           {expanded?"Hide ▲":"Read ▼"}
@@ -920,7 +936,7 @@ function LockModal({ validCount, invalidCount, manualValidCount, onConfirm, onCa
   );
 }
 
-function ValidateTab({ preHooks,hooks,leads,bodies,ctas,validationStore,setValidationStore,locked,setLocked,validationMode,setValidationMode,anthropicKey }) {
+function ValidateTab({ preHooks,hooks,leads,bodies,ctas,speakers,validationStore,setValidationStore,locked,setLocked,validationMode,setValidationMode,anthropicKey }) {
   const [scopeTagSet,setScopeTagSet]=useState(new Set());
   const [preHookMode,setPreHookMode]=useState("none");
   const [preHookTagSet,setPreHookTagSet]=useState(new Set()); // independent filter
@@ -938,7 +954,8 @@ function ValidateTab({ preHooks,hooks,leads,bodies,ctas,validationStore,setValid
   const [confirmModal,setConfirmModal]=useState(null);
   const [showLockModal,setShowLockModal]=useState(false);
   const pauseRef=useRef(false);
-  const [resTagSet,setResTagSet]=useState(new Set());
+  const [resTagFilter,setResTagFilter]=useState("All");
+  const [resSpeakerFilter,setResSpeakerFilter]=useState("All");
   const [resSearch,setResSearch]=useState("");
   const [validFilter,setValidFilter]=useState("All");
 
@@ -1018,8 +1035,15 @@ function ValidateTab({ preHooks,hooks,leads,bodies,ctas,validationStore,setValid
     setValidationStore(prev=>{
       const existing=prev[key]; if(!existing) return prev;
       const alreadyCorrect=existing.valid===newValid; if(alreadyCorrect) return prev;
-      return {...prev,[key]:{...existing,valid:newValid,manual:true,
+      return {...prev,[key]:{...existing,valid:newValid,manual:true,reviewed:true,
         reason:existing.manual?existing.reason:`Original AI verdict: "${existing.reason}" — manually overridden.`}};
+    });
+  };
+
+  const handleMarkReviewed=(key)=>{
+    setValidationStore(prev=>{
+      const existing=prev[key]; if(!existing) return prev;
+      return {...prev,[key]:{...existing,reviewed:!existing.reviewed}};
     });
   };
 
@@ -1037,11 +1061,28 @@ function ValidateTab({ preHooks,hooks,leads,bodies,ctas,validationStore,setValid
   const bodyMap=useMemo(()=>Object.fromEntries(bodies.map(b=>[b.id,b.text])),[bodies]);
   const ctaMap =useMemo(()=>Object.fromEntries(ctas.map(c=>[c.id,c.text])),[ctas]);
 
+  // Build speaker options from hooks/leads referenced in results
+  const hookSpeakerMap=useMemo(()=>Object.fromEntries(hooks.map(h=>[h.id,h.speaker||""])),[hooks]);
+  const leadSpeakerMap=useMemo(()=>Object.fromEntries(leads.map(l=>[l.id,l.speaker||""])),[leads]);
+  const speakerOptions=useMemo(()=>{
+    const set=new Set();
+    results.forEach(r=>{
+      if(hookSpeakerMap[r.hookId]) set.add(hookSpeakerMap[r.hookId]);
+      if(leadSpeakerMap[r.leadId]) set.add(leadSpeakerMap[r.leadId]);
+    });
+    // also include roster speakers
+    (speakers||[]).forEach(s=>{ if(s.name) set.add(s.name); });
+    return [...set].sort();
+  },[results,hookSpeakerMap,leadSpeakerMap,speakers]);
+
   const filteredResults=results.filter(r=>{
-    const matchTag=resTagSet.size===0||tagMatch(r.hookTag,resTagSet)||tagMatch(r.leadTag,resTagSet);
+    const matchTag=resTagFilter==="All"||r.hookTag===resTagFilter||r.leadTag===resTagFilter;
+    const hSpk=hookSpeakerMap[r.hookId]||"";
+    const lSpk=leadSpeakerMap[r.leadId]||"";
+    const matchSpeaker=resSpeakerFilter==="All"||hSpk===resSpeakerFilter||lSpk===resSpeakerFilter;
     const matchSearch=resSearch===""||r.hookId.toLowerCase().includes(resSearch.toLowerCase())||r.leadId.toLowerCase().includes(resSearch.toLowerCase());
-    const matchValid=validFilter==="All"||(validFilter==="Valid"&&r.valid===true)||(validFilter==="Invalid"&&r.valid===false)||(validFilter==="Manual"&&r.manual);
-    return matchTag&&matchSearch&&matchValid;
+    const matchValid=validFilter==="All"||(validFilter==="Valid"&&r.valid===true)||(validFilter==="Invalid"&&r.valid===false)||(validFilter==="Manual"&&r.manual)||(validFilter==="Unreviewed"&&!r.reviewed);
+    return matchTag&&matchSpeaker&&matchSearch&&matchValid;
   });
 
   const totalCombos=allTasks.length;
@@ -1287,16 +1328,31 @@ function ValidateTab({ preHooks,hooks,leads,bodies,ctas,validationStore,setValid
           {/* Results toolbar */}
           <div className="flex flex-wrap items-center gap-2 mb-3">
             <input value={resSearch} onChange={e=>setResSearch(e.target.value)} placeholder="Search by Hook or Lead ID..."
-              className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-amber-500 w-52"/>
-            <TagFilterRow tagSet={resTagSet} onChange={setResTagSet}/>
+              className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-amber-500 w-44"/>
+            {/* Tag dropdown */}
+            <select value={resTagFilter} onChange={e=>setResTagFilter(e.target.value)}
+              className="bg-zinc-800 border border-zinc-700 rounded-lg px-2.5 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-amber-500 cursor-pointer">
+              <option value="All">All Tags</option>
+              {["Founder","UGC","AI","VO","Any"].map(t=><option key={t} value={t}>{t}</option>)}
+            </select>
+            {/* Speaker dropdown — strongest filter, only shows speakers present in results */}
+            <select value={resSpeakerFilter} onChange={e=>setResSpeakerFilter(e.target.value)}
+              className={`border rounded-lg px-2.5 py-1.5 text-xs focus:outline-none cursor-pointer transition-colors
+                ${resSpeakerFilter!=="All"
+                  ?"bg-teal-500/15 border-teal-500/40 text-teal-300 focus:border-teal-400"
+                  :"bg-zinc-800 border-zinc-700 text-zinc-300 focus:border-amber-500"}`}>
+              <option value="All">All Speakers</option>
+              {speakerOptions.map(s=><option key={s} value={s}>{s}</option>)}
+            </select>
+            {/* Verdict filter pills */}
             <div className="flex gap-1 ml-auto flex-wrap">
-              {["All","Valid","Invalid","Manual"].map(v=>(
+              {["All","Valid","Invalid","Manual","Unreviewed"].map(v=>(
                 <button key={v} onClick={()=>setValidFilter(v)}
                   className={`px-2.5 py-1 text-xs rounded-full font-medium transition-colors
                     ${validFilter===v
-                      ?v==="Valid"?"bg-emerald-500 text-black":v==="Invalid"?"bg-red-500 text-white":v==="Manual"?"bg-amber-500 text-black":"bg-zinc-600 text-white"
+                      ?v==="Valid"?"bg-emerald-500 text-black":v==="Invalid"?"bg-red-500 text-white":v==="Manual"?"bg-amber-500 text-black":v==="Unreviewed"?"bg-teal-500 text-black":"bg-zinc-600 text-white"
                       :"bg-zinc-800 text-zinc-400 hover:text-white"}`}>
-                  {v==="Valid"?"✅ Valid":v==="Invalid"?"❌ Invalid":v==="Manual"?"✏️ Manual":"All"}
+                  {v==="Valid"?"✅ Valid":v==="Invalid"?"❌ Invalid":v==="Manual"?"✏️ Manual":v==="Unreviewed"?"👁 Unreviewed":"All"}
                 </button>
               ))}
             </div>
@@ -1319,10 +1375,10 @@ function ValidateTab({ preHooks,hooks,leads,bodies,ctas,validationStore,setValid
           </div>
           <div className="space-y-2">
             {filteredResults.map((r,i)=>(
-              <ResultCard key={r.key||i} result={r}
+              <ResultCard key={r.key||i} result={r} rowNum={i+1}
                 hookText={hookMap[r.hookId]} leadText={leadMap[r.leadId]}
                 bodyText={r.bodyId?bodyMap[r.bodyId]:null} ctaText={r.ctaId?ctaMap[r.ctaId]:null}
-                onOverride={handleOverride} validationMode={r.mode||validationMode}/>
+                onOverride={handleOverride} onMarkReviewed={handleMarkReviewed} validationMode={r.mode||validationMode}/>
             ))}
           </div>
         </div>
@@ -1392,8 +1448,16 @@ function ComboRow({ combo, vr, assetMap, onToggle, onUrlChange, onFilenameChange
         {onSelect&&<input type="checkbox" checked={!!selected} onChange={e=>onSelect(e.target.checked)}
           onClick={e=>e.stopPropagation()}
           className="accent-teal-500 w-3.5 h-3.5 shrink-0 cursor-pointer" title="Select for Stitcher"/>}
-        <input type="checkbox" checked={combo.created} onChange={()=>onToggle(combo.key)}
-          className="accent-amber-500 w-4 h-4 shrink-0 cursor-pointer"/>
+        {/* Complete toggle */}
+        <button
+          onClick={()=>onToggle(combo.key)}
+          title={combo.created?"Mark as incomplete":"Mark as complete"}
+          className={`shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-semibold transition-all
+            ${combo.created
+              ?"bg-emerald-500/20 border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/10"
+              :"bg-zinc-800 border-zinc-700 text-zinc-500 hover:border-emerald-500/40 hover:text-emerald-400"}`}>
+          {combo.created?"✓ Done":"Mark Done"}
+        </button>
         {vr&&<span className="text-sm shrink-0">{vr.manual?"✏️":vr.valid?"✅":"❌"}</span>}
         <div className="flex items-center gap-1 shrink-0 flex-wrap">
           {combo.preHookId&&<>
@@ -2874,7 +2938,7 @@ export default function App() {
           </div>
         )}
         {tab==="library" &&<LibraryTab {...{preHooks,setPreHooks,hooks,leads,bodies,ctas,setHooks,setLeads,setBodies,setCtas,validationStore,speakers,setSpeakers}}/>}
-        {tab==="validate"&&<ValidateTab {...{preHooks,hooks,leads,bodies,ctas,validationStore,setValidationStore,locked,setLocked,validationMode,setValidationMode,anthropicKey}}/>}
+        {tab==="validate"&&<ValidateTab {...{preHooks,hooks,leads,bodies,ctas,speakers,validationStore,setValidationStore,locked,setLocked,validationMode,setValidationMode,anthropicKey}}/>}
         {tab==="tracker" &&<TrackerTab combos={combos} onToggle={toggleCombo} onUrlChange={updateUrl} onFilenameChange={updateFilename} validationStore={validationStore} setValidationStore={setValidationStore} validPairs={validPairs} locked={locked} preHooks={preHooks} hooks={hooks} leads={leads} bodies={bodies} ctas={ctas} sheetsUrl={zapierUrl||sheetyUrl||sheetsUrl} syncState={syncState} onSyncRow={syncRow} onSyncAll={syncAll} buildRow={buildRow} setStitchQueue={setStitchQueue} setTab={setTab}/>}
         {tab==="stitch"  &&<StitchTab combos={combos} validationStore={validationStore} preHooks={preHooks} hooks={hooks} leads={leads} bodies={bodies} ctas={ctas} onMarkCreated={toggleCombo} stitchQueue={stitchQueue} setStitchQueue={setStitchQueue}/>}
         {tab==="settings"&&<SettingsTab sheetsUrl={sheetsUrl} setSheetsUrl={setSheetsUrl} sheetyUrl={sheetyUrl} setSheetyUrl={setSheetyUrl} sheetyToken={sheetyToken} setSheetyToken={setSheetyToken} zapierUrl={zapierUrl} setZapierUrl={setZapierUrl}/>}
