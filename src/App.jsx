@@ -711,34 +711,43 @@ function buildPrompt(hook, lead, body, cta, mode) {
   const bodyPart=body?`\nBody: "${body.text}"`:""
   const ctaPart=cta?`\nCTA: "${cta.text}"`:""
   if (mode==="grammar") {
-    return `You are checking whether the following video ad script segments read naturally when spoken back-to-back.
+    return `You are a strict video ad script editor. Your job is to decide whether these segments can be stitched together and played back-to-back without confusing or losing the viewer.
 
 Hook: "${hook.text}"
 Lead: "${lead.text}"${bodyPart}${ctaPart}
 
-Check ONLY for:
-- Awkward or jarring transitions between segments
-- Tonal mismatches (e.g. suddenly formal after casual, or vice versa)
-- Grammatical discontinuity (sentences that don't flow from one to the next)
+Mark as INVALID if ANY of the following are true:
+- The lead starts with a connector word (but, and, so, because) that does NOT logically continue the specific thought from the hook
+- The lead introduces a completely new subject with no bridge from what the hook just said
+- A viewer hearing these back-to-back would feel a jarring jump or be confused about who is speaking or what the point is
+- The perspective or subject suddenly shifts (e.g. hook is about the speaker, lead is about the viewer) with no connecting logic
+- Tonal mismatch — e.g. raw/casual hook followed by a formal or structured lead
 
-Do NOT evaluate strategy, narrative depth, or whether the content is persuasive.
+Mark as VALID only if the lead flows directly and logically from exactly what was said in the hook — as if it were one continuous sentence or thought.
 
-Respond ONLY in this exact JSON format:
-{"valid": true or false, "reason": "One sentence about the flow or transition quality."}`;
+Be strict. If there is any doubt about whether a real viewer would feel a disconnect, mark it invalid.
+
+Respond ONLY in this exact JSON format with no other text:
+{"valid": true or false, "reason": "One sentence identifying the specific connection or the exact point of disconnect."}`;
   }
-  return `You are evaluating whether video ad script components work together as a cohesive narrative sequence.
+  return `You are a strict video ad script editor evaluating whether these segments work as a cohesive narrative when played back-to-back.
 
 Hook: "${hook.text}"
 Lead: "${lead.text}"${bodyPart}${ctaPart}
 
-Evaluate:
-- Does the lead naturally follow from the hook's premise or promise?
-- Does the body (if present) deliver on what the hook and lead set up?
-- Does the CTA (if present) match the tone and energy of the opener?
-- Is there a logical throughline from start to finish?
+Mark as INVALID if ANY of the following are true:
+- The lead does not follow from the hook's specific premise, claim, or emotional direction
+- The body (if present) does not deliver on what the hook and lead set up
+- The CTA (if present) feels disconnected in tone or energy from the rest
+- There is no clear logical throughline a viewer could follow from start to finish
+- The viewer would need a mental leap or missing context to connect the segments
 
-Respond ONLY in this exact JSON format:
-{"valid": true or false, "reason": "One sentence explanation of why it works or doesn't."}`;
+Mark as VALID only if every segment follows naturally from the last — a viewer should feel it was written as one unified script.
+
+Be strict. If the narrative connection requires a stretch, mark it invalid.
+
+Respond ONLY in this exact JSON format with no other text:
+{"valid": true or false, "reason": "One sentence explaining the specific narrative connection or the exact point of breakdown."}`;
 }
 
 async function callValidate(hook, lead, body, cta, mode, apiKey) {
