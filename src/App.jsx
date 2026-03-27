@@ -1481,7 +1481,7 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
                   🗑 Delete
                 </button>
                 <button
-                  onClick={()=>{ setValidationStore(prev=>{ const n={...prev}; selectedResultKeys.forEach(k=>{ if(n[k]) n[k]={...n[k],valid:true,manual:true,reviewed:true,reason:n[k].manual?n[k].reason:`Original AI verdict: "${n[k].reason}" — manually approved & moved to tracker.`}; }); return n; }); setSelectedResultKeys(new Set()); setTab("tracker"); }}
+                  onClick={()=>{ setValidationStore(prev=>{ const n={...prev}; selectedResultKeys.forEach(k=>{ if(n[k]) n[k]={...n[k],valid:true,manual:true,reviewed:true,reason:n[k].manual?n[k].reason:`Original AI verdict: "${n[k].reason}" — manually approved & moved to tracker.`}; }); return n; }); setSelectedResultKeys(new Set()); setLocked(false); setTab("tracker"); }}
                   className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 border border-amber-500 text-black text-xs font-bold rounded-lg transition-colors">
                   ➡ Move to Tracker
                 </button>
@@ -3070,7 +3070,10 @@ export default function App() {
           </div>
         )}
         {tab==="library" &&<LibraryTab {...{preHooks,setPreHooks,hooks,transitions,setTransitions,leads,bodies,ctas,setHooks,setLeads,setBodies,setCtas,validationStore,speakers,setSpeakers}}/>}
-        {tab==="validate"&&<ValidateTab {...{preHooks,hooks,transitions,leads,bodies,ctas,speakers,validationStore,setValidationStore,locked,setLocked,validationMode,setValidationMode,anthropicKey,setTab}}/>}
+        {/* ValidateTab stays mounted to preserve scope selections and results across tab switches */}
+        <div style={{display:tab==="validate"?"block":"none"}}>
+          <ValidateTab {...{preHooks,hooks,transitions,leads,bodies,ctas,speakers,validationStore,setValidationStore,locked,setLocked,validationMode,setValidationMode,anthropicKey,setTab}}/>
+        </div>
         {tab==="tracker" &&<TrackerTab combos={combos} onToggle={toggleCombo} onUrlChange={updateUrl} onFilenameChange={updateFilename} validationStore={validationStore} setValidationStore={setValidationStore} validPairs={validPairs} locked={locked} preHooks={preHooks} hooks={hooks} leads={leads} bodies={bodies} ctas={ctas} sheetsUrl={zapierUrl||sheetyUrl||sheetsUrl} syncState={syncState} onSyncRow={syncRow} onSyncAll={syncAll} buildRow={buildRow} setStitchQueue={setStitchQueue} setTab={setTab}/>}
         {tab==="stitch"  &&<StitchTab combos={combos} validationStore={validationStore} preHooks={preHooks} hooks={hooks} transitions={transitions} leads={leads} bodies={bodies} ctas={ctas} onMarkCreated={toggleCombo} stitchQueue={stitchQueue} setStitchQueue={setStitchQueue}/>}
         {tab==="settings"&&<SettingsTab sheetsUrl={sheetsUrl} setSheetsUrl={setSheetsUrl} sheetyUrl={sheetyUrl} setSheetyUrl={setSheetyUrl} sheetyToken={sheetyToken} setSheetyToken={setSheetyToken} zapierUrl={zapierUrl} setZapierUrl={setZapierUrl}/>}
