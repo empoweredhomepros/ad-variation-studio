@@ -752,7 +752,7 @@ async function callValidate(hook, lead, body, cta, mode, apiKey) {
       "anthropic-version": "2023-06-01",
       "anthropic-dangerous-direct-browser-access": "true",
     },
-    body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:300,messages:[{role:"user",content:prompt}]}),
+    body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:300,messages:[{role:"user",content:prompt}]}),
   });
   if(!res.ok) throw new Error(`API error ${res.status}`);
   const data=await res.json();
@@ -978,8 +978,8 @@ function ValidateTab({ preHooks,hooks,leads,bodies,ctas,validationStore,setValid
       try {
         const res=await callValidate(h,l,b,c,validationMode,anthropicKey);
         setValidationStore(prev=>({...prev,[key]:{key,preHookId:ph?.id||null,hookId:h.id,leadId:l.id,bodyId:b?.id||null,ctaId:c?.id||null,hookTag:h.tag,leadTag:l.tag,valid:res.valid,reason:res.reason,manual:false,mode:validationMode}}));
-      } catch {
-        setValidationStore(prev=>({...prev,[key]:{key,preHookId:ph?.id||null,hookId:h.id,leadId:l.id,bodyId:b?.id||null,ctaId:c?.id||null,hookTag:h.tag,leadTag:l.tag,valid:null,reason:"Error during validation.",manual:false,mode:validationMode}}));
+      } catch(err) {
+        setValidationStore(prev=>({...prev,[key]:{key,preHookId:ph?.id||null,hookId:h.id,leadId:l.id,bodyId:b?.id||null,ctaId:c?.id||null,hookTag:h.tag,leadTag:l.tag,valid:null,reason:`Error: ${err?.message||"Unknown error"}`,manual:false,mode:validationMode}}));
       }
       setProgress({done:i+1,total:tasks.length});
     }
@@ -990,6 +990,8 @@ function ValidateTab({ preHooks,hooks,leads,bodies,ctas,validationStore,setValid
     const manualKeys=new Set(allTasks.filter(t=>(t.key in validationStore)&&validationStore[t.key].manual).map(t=>t.key));
     if(manualKeys.size>0){ setConfirmModal({tasks:newTasks,manualKeys}); } else { executeRun(newTasks); }
   };
+  const errorTasks=useMemo(()=>allTasks.filter(t=>(t.key in validationStore)&&validationStore[t.key].valid===null&&!validationStore[t.key].manual),[allTasks,validationStore]);
+  const handleRetryErrors=()=>{ if(errorTasks.length>0) executeRun(errorTasks); };
   const handleConfirmOverwrite=()=>{
     const manualTasks=Object.keys(validationStore).filter(k=>confirmModal.manualKeys.has(k)).map(k=>{
       const v=validationStore[k];
@@ -1213,10 +1215,17 @@ function ValidateTab({ preHooks,hooks,leads,bodies,ctas,validationStore,setValid
               </button>
             )}
             {running&&<button onClick={()=>{pauseRef.current=true;}} className="px-4 py-2.5 bg-zinc-700 hover:bg-zinc-600 text-white font-bold rounded-lg text-sm">⏸ Pause</button>}
+            {errorTasks.length>0&&!running&&(
+              <button onClick={handleRetryErrors}
+                className="px-4 py-2.5 bg-orange-500/20 hover:bg-orange-500/30 border border-orange-500/40 text-orange-300 font-bold rounded-lg text-sm flex items-center gap-1.5">
+                ⟳ Retry {errorTasks.length} error{errorTasks.length!==1?"s":""}
+              </button>
+            )}
             {results.length>0&&!running&&(
               <div className="flex gap-2 text-sm flex-wrap">
                 <span className="text-emerald-400 font-bold">✅ {aiValidCount}</span>
                 <span className="text-red-400 font-bold">❌ {invalidCount}</span>
+                {errorTasks.length>0&&<span className="text-orange-400 font-bold">⚠️ {errorTasks.length} errors</span>}
                 {manualCount>0&&<span className="text-amber-400 font-bold">✏️ {manualCount} manual</span>}
               </div>
             )}
