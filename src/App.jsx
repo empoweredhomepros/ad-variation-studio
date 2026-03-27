@@ -1018,7 +1018,10 @@ function ValidateTab({ preHooks,hooks,leads,bodies,ctas,validationStore,setValid
     });
   };
 
-  const results=Object.values(validationStore);
+  // Only count results that belong to the current scope (allTasks), not stale results from previous runs
+  const scopeKeys=useMemo(()=>new Set(allTasks.map(t=>t.key)),[allTasks]);
+  const results=Object.values(validationStore).filter(r=>scopeKeys.has(r.key));
+  const allResults=Object.values(validationStore); // used for the results list display
   const aiValidCount    =results.filter(r=>r.valid===true&&!r.manual).length;
   const manualValidCount=results.filter(r=>r.valid===true&&r.manual).length;
   const invalidCount    =results.filter(r=>r.valid===false).length;
@@ -1030,7 +1033,7 @@ function ValidateTab({ preHooks,hooks,leads,bodies,ctas,validationStore,setValid
   const ctaMap =useMemo(()=>Object.fromEntries(ctas.map(c=>[c.id,c.text])),[ctas]);
 
   const filteredResults=results.filter(r=>{
-    const matchTag=tagMatch(r.hookTag,resTagSet)||tagMatch(r.leadTag,resTagSet);
+    const matchTag=resTagSet.size===0||tagMatch(r.hookTag,resTagSet)||tagMatch(r.leadTag,resTagSet);
     const matchSearch=resSearch===""||r.hookId.toLowerCase().includes(resSearch.toLowerCase())||r.leadId.toLowerCase().includes(resSearch.toLowerCase());
     const matchValid=validFilter==="All"||(validFilter==="Valid"&&r.valid===true)||(validFilter==="Invalid"&&r.valid===false)||(validFilter==="Manual"&&r.manual);
     return matchTag&&matchSearch&&matchValid;
