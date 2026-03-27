@@ -2739,10 +2739,13 @@ export default function App() {
     return all;
   },[preHookSlots,hooks,leads,bodies,ctas,comboData]);
 
-  const validationResults=Object.values(validationStore);
-  const validPairs=useMemo(()=>{
-    return validationResults.filter(r=>r.valid===true).length;
-  },[validationResults]);
+  // Only count results that belong to the current combo scope (exact key or hook+lead-only fallback)
+  const comboKeySet=useMemo(()=>new Set(combos.map(c=>c.key)),[combos]);
+  const comboHlKeySet=useMemo(()=>new Set(combos.map(c=>`${c.preHookId||"none"}+${c.hookId}+${c.leadId}+none+none`)),[combos]);
+  const validationResults=useMemo(()=>
+    Object.values(validationStore).filter(r=>comboKeySet.has(r.key)||comboHlKeySet.has(r.key)),
+  [validationStore,comboKeySet,comboHlKeySet]);
+  const validPairs=useMemo(()=>validationResults.filter(r=>r.valid===true).length,[validationResults]);
 
   const done=combos.filter(c=>c.created).length;
   const total=combos.length;
