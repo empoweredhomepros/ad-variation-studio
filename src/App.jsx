@@ -3014,7 +3014,7 @@ export default function App() {
         <div className="max-w-5xl mx-auto px-5 py-4 flex items-center justify-between">
           <div>
             <h1 className="text-white font-black text-lg tracking-tight">Ad Variation Studio</h1>
-            <p className="text-zinc-500 text-xs mt-0.5">Hook · Lead · Body · CTA</p>
+            <p className="text-zinc-500 text-xs mt-0.5">Hook · Lead · Transition · Body · CTA</p>
           </div>
           <div className="flex items-center gap-3">
             <button onClick={()=>setShowAdmin(true)} className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-400 hover:text-white text-xs font-semibold rounded-lg transition-colors">⚙ Admin</button>
