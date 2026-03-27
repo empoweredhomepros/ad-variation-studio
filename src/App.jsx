@@ -672,7 +672,7 @@ function LibraryTab({ preHooks,setPreHooks,hooks,transitions,setTransitions,lead
         </div>
       )}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {visibleSections.map(({label,items,setter,prefix,singular})=>{
+        {visibleSections.map(({label,items,setter,prefix,singular,showUniversal})=>{
           const filtered=filterItems(items);
           const allSel=filtered.length>0&&filtered.every(i=>selectedIds.has(`${label}|${i.id}`));
           const someSel=filtered.some(i=>selectedIds.has(`${label}|${i.id}`));
