@@ -145,20 +145,40 @@ function ProgressRing({ done, total, combos, validationStore, locked }) {
   );
 }
 
-function SpeakerCombobox({ value, onChange, speakers, datalistId }) {
+function SpeakerCombobox({ value, onChange, speakers }) {
+  const rosterNames = (speakers||[]).map(s=>s.name);
+  const isOther = value && !rosterNames.includes(value);
+  const selectVal = isOther ? "__other__" : (value||"");
+
+  const handleSelect = (e) => {
+    const v = e.target.value;
+    if (v === "__other__") { onChange(""); }
+    else { onChange(v); }
+  };
+
   return (
-    <>
-      <input
-        list={datalistId}
-        value={value||""}
-        onChange={e=>onChange(e.target.value)}
-        placeholder="Speaker name (optional)"
-        className="w-full bg-zinc-900 border border-zinc-600 rounded px-2 py-1.5 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-amber-500"
-      />
-      <datalist id={datalistId}>
-        {(speakers||[]).map(s=><option key={s.id} value={s.name}/>)}
-      </datalist>
-    </>
+    <div className="flex gap-2">
+      <select
+        value={selectVal}
+        onChange={handleSelect}
+        className="flex-1 bg-zinc-900 border border-zinc-600 rounded px-2 py-1.5 text-sm text-zinc-300 focus:outline-none focus:border-amber-500"
+      >
+        <option value="">— No speaker —</option>
+        {rosterNames.length>0&&<optgroup label="Roster">
+          {rosterNames.map(n=><option key={n} value={n}>{n}</option>)}
+        </optgroup>}
+        <option value="__other__">Other (type name)…</option>
+      </select>
+      {(selectVal==="__other__"||isOther)&&(
+        <input
+          value={value||""}
+          onChange={e=>onChange(e.target.value)}
+          placeholder="Type speaker name"
+          autoFocus
+          className="flex-1 bg-zinc-900 border border-zinc-600 rounded px-2 py-1.5 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-amber-500"
+        />
+      )}
+    </div>
   );
 }
 
@@ -170,7 +190,7 @@ function AssetRow({ item, onDelete, onUpdate, validMark, speakers }) {
   const hasVideo=item.videoFileName||item.driveUrl;
   const borderColor=validMark==="valid"?"border-emerald-500/25":validMark==="invalid"?"border-red-500/20":"border-zinc-700/50";
   const bgColor=validMark==="valid"?"bg-emerald-500/5":validMark==="invalid"?"bg-red-500/5":"bg-zinc-800/60";
-  const datalistId=`speakers-${item.id}`;
+
 
   if (editing) return (
     <div className={`rounded-lg border ${bgColor} border-amber-500/40 p-3 space-y-2`}>
@@ -195,7 +215,7 @@ function AssetRow({ item, onDelete, onUpdate, validMark, speakers }) {
       </div>
       <div className="flex flex-col gap-1">
         <label className="text-xs text-zinc-500">Speaker / Actor</label>
-        <SpeakerCombobox value={draft.speaker} onChange={v=>setDraft(d=>({...d,speaker:v}))} speakers={speakers} datalistId={datalistId}/>
+        <SpeakerCombobox value={draft.speaker} onChange={v=>setDraft(d=>({...d,speaker:v}))} speakers={speakers}/>
       </div>
       <div className="flex flex-col gap-1">
         <label className="text-xs text-zinc-500">Script text</label>
@@ -261,7 +281,7 @@ function AssetRow({ item, onDelete, onUpdate, validMark, speakers }) {
 
 function AddAssetForm({ onAdd, prefix, singularLabel, speakers }) {
   const [id,setId]=useState(""); const [descriptor,setDescriptor]=useState(""); const [text,setText]=useState(""); const [tag,setTag]=useState("Founder"); const [speaker,setSpeaker]=useState("");
-  const datalistId=`speakers-add-${prefix}`;
+
   const submit=()=>{ if(!id.trim()||!text.trim()) return; onAdd({id:id.trim(),descriptor:descriptor.trim(),text:text.trim(),tag,speaker:speaker.trim(),driveUrl:"",videoFileName:""}); setId("");setDescriptor("");setText("");setSpeaker(""); };
   return (
     <div className="mt-3 p-3 rounded-lg border border-dashed border-zinc-600/60 bg-zinc-900/40">
@@ -276,7 +296,7 @@ function AddAssetForm({ onAdd, prefix, singularLabel, speakers }) {
         </select>
       </div>
       <div className="mb-2">
-        <SpeakerCombobox value={speaker} onChange={setSpeaker} speakers={speakers} datalistId={datalistId}/>
+        <SpeakerCombobox value={speaker} onChange={setSpeaker} speakers={speakers}/>
       </div>
       <textarea value={text} onChange={e=>setText(e.target.value)} placeholder={`Enter ${singularLabel.toLowerCase()} script text...`} rows={2}
         className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-amber-500 resize-none"/>
