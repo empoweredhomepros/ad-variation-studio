@@ -182,14 +182,14 @@ function SpeakerCombobox({ value, onChange, speakers }) {
   );
 }
 
-function AssetRow({ item, onDelete, onUpdate, validMark, speakers }) {
+function AssetRow({ item, onDelete, onUpdate, validMark, speakers, selected, onSelect }) {
   const [editing,setEditing]=useState(false);
   const [draft,setDraft]=useState(item);
   const [videoPanel,setVideoPanel]=useState(false);
   const [driveMode,setDriveMode]=useState(item.driveUrl?"drive":"upload");
   const hasVideo=item.videoFileName||item.driveUrl;
-  const borderColor=validMark==="valid"?"border-emerald-500/25":validMark==="invalid"?"border-red-500/20":"border-zinc-700/50";
-  const bgColor=validMark==="valid"?"bg-emerald-500/5":validMark==="invalid"?"bg-red-500/5":"bg-zinc-800/60";
+  const borderColor=selected?"border-amber-500/50":validMark==="valid"?"border-emerald-500/25":validMark==="invalid"?"border-red-500/20":"border-zinc-700/50";
+  const bgColor=selected?"bg-amber-500/5":validMark==="valid"?"bg-emerald-500/5":validMark==="invalid"?"bg-red-500/5":"bg-zinc-800/60";
 
 
   if (editing) return (
@@ -232,6 +232,14 @@ function AssetRow({ item, onDelete, onUpdate, validMark, speakers }) {
   return (
     <div className={`rounded-lg border ${bgColor} ${borderColor} group`}>
       <div className="flex items-start gap-3 p-3">
+        <input
+          type="checkbox"
+          checked={!!selected}
+          onChange={e=>{e.stopPropagation();onSelect&&onSelect(e.target.checked);}}
+          onClick={e=>e.stopPropagation()}
+          className="mt-1 shrink-0 w-3.5 h-3.5 accent-amber-500 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
+          style={selected?{opacity:1}:{}}
+        />
         <div className="flex-shrink-0 pt-0.5">
           <div className="font-mono text-amber-400 text-sm font-bold">{item.id}</div>
           {item.descriptor&&<div className="text-zinc-500 text-xs mt-0.5 italic">"{item.descriptor}"</div>}
@@ -561,6 +569,21 @@ function LibraryTab({ preHooks,setPreHooks,hooks,leads,bodies,ctas,setHooks,setL
   const [search,setSearch]=useState("");
   const [speakerFilter,setSpeakerFilter]=useState("All");
   const [showImport,setShowImport]=useState(false);
+  const [selectedIds,setSelectedIds]=useState(new Set());
+
+  const toggleSelect=(key,val)=>setSelectedIds(prev=>{ const n=new Set(prev); val?n.add(key):n.delete(key); return n; });
+  const toggleSelectAll=(label,items)=>{
+    const keys=items.map(i=>`${label}|${i.id}`);
+    const allSel=keys.length>0&&keys.every(k=>selectedIds.has(k));
+    setSelectedIds(prev=>{ const n=new Set(prev); allSel?keys.forEach(k=>n.delete(k)):keys.forEach(k=>n.add(k)); return n; });
+  };
+  const deleteSelected=()=>{
+    sections.forEach(({label,setter})=>{
+      const toDelete=new Set([...selectedIds].filter(k=>k.startsWith(label+"|")).map(k=>k.slice(label.length+1)));
+      if(toDelete.size>0) setter(prev=>prev.filter(i=>!toDelete.has(i.id)));
+    });
+    setSelectedIds(new Set());
+  };
   const sections=[
     {label:"Pre-hooks",items:preHooks,setter:setPreHooks,prefix:"PH",  singular:"Pre-hook"},
     {label:"Hooks",    items:hooks,   setter:setHooks,   prefix:"H",   singular:"Hook"    },
@@ -631,18 +654,33 @@ function LibraryTab({ preHooks,setPreHooks,hooks,leads,bodies,ctas,setHooks,setL
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {visibleSections.map(({label,items,setter,prefix,singular})=>{
           const filtered=filterItems(items);
+          const allSel=filtered.length>0&&filtered.every(i=>selectedIds.has(`${label}|${i.id}`));
+          const someSel=filtered.some(i=>selectedIds.has(`${label}|${i.id}`));
           return (
             <div key={label}>
               <div className="flex items-center gap-2 mb-3">
+                <input
+                  type="checkbox"
+                  checked={allSel}
+                  ref={el=>{ if(el) el.indeterminate=someSel&&!allSel; }}
+                  onChange={()=>toggleSelectAll(label,filtered)}
+                  className="w-3.5 h-3.5 accent-amber-500 cursor-pointer"
+                  title={allSel?"Deselect all":"Select all"}
+                />
                 <h3 className="text-white font-bold text-sm uppercase tracking-widest">{label}</h3>
                 <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded-full">{filtered.length}</span>
               </div>
               <div className="space-y-2">
-                {filtered.map(item=>(
-                  <AssetRow key={item.id} item={item} validMark={getMark(label,item.id)} speakers={speakers}
-                    onUpdate={patch=>updateItem(setter,item.id,patch)}
-                    onDelete={()=>setter(prev=>prev.filter(i=>i.id!==item.id))}/>
-                ))}
+                {filtered.map(item=>{
+                  const key=`${label}|${item.id}`;
+                  return (
+                    <AssetRow key={item.id} item={item} validMark={getMark(label,item.id)} speakers={speakers}
+                      selected={selectedIds.has(key)}
+                      onSelect={val=>toggleSelect(key,val)}
+                      onUpdate={patch=>updateItem(setter,item.id,patch)}
+                      onDelete={()=>{ setter(prev=>prev.filter(i=>i.id!==item.id)); setSelectedIds(prev=>{ const n=new Set(prev); n.delete(key); return n; }); }}/>
+                  );
+                })}
                 {filtered.length===0&&<div className="text-zinc-600 text-sm py-3 text-center">No items match filter.</div>}
               </div>
               {(activeSection==="All"||activeSection===label)&&<AddAssetForm prefix={prefix} singularLabel={singular} speakers={speakers} onAdd={item=>setter(prev=>[...prev,item])}/>}
@@ -650,6 +688,20 @@ function LibraryTab({ preHooks,setPreHooks,hooks,leads,bodies,ctas,setHooks,setL
           );
         })}
       </div>
+
+      {/* Floating bulk action bar */}
+      {selectedIds.size>0&&(
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-3 bg-zinc-900 border border-amber-500/40 rounded-full shadow-2xl shadow-black/60">
+          <span className="text-sm text-white font-semibold">{selectedIds.size} selected</span>
+          <span className="text-zinc-600">|</span>
+          <button onClick={()=>setSelectedIds(new Set())} className="text-xs text-zinc-400 hover:text-white transition-colors">Clear</button>
+          <button
+            onClick={()=>{ if(window.confirm(`Delete ${selectedIds.size} item${selectedIds.size!==1?"s":""}? This cannot be undone.`)) deleteSelected(); }}
+            className="px-3 py-1.5 bg-red-500 hover:bg-red-400 text-white text-xs font-bold rounded-full transition-colors">
+            🗑 Delete {selectedIds.size}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
