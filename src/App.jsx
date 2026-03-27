@@ -1593,10 +1593,10 @@ function TrackerTab({ combos, onToggle, onUrlChange, onFilenameChange, validatio
       {Object.keys(validationStore).length>0&&(
         <div className="mb-5 p-3 bg-zinc-900 border border-zinc-800 rounded-lg flex items-center gap-4 flex-wrap">
           <div className="text-sm text-zinc-400">
-            {locked?"Valid combos in tracker:":"After validation:"} <span className="text-emerald-400 font-bold">{validPairs} valid</span> out of <span className="text-white font-bold">{combos.length} total.</span>
+            {locked?"Valid combos in tracker:":"After validation:"} <span className="text-emerald-400 font-bold">{baseCombos.length} valid</span>
           </div>
           <div className="text-sm text-zinc-400">
-            Created: <span className="text-amber-400 font-bold">{doneCombos}</span> / <span className="text-white font-bold">{validTotal}</span>
+            Created: <span className="text-amber-400 font-bold">{doneCombos}</span> / <span className="text-white font-bold">{baseCombos.length}</span>
             {doneCombos>0&&<span className="text-zinc-500 ml-1">({Math.round((doneCombos/validTotal)*100)}%)</span>}
           </div>
         </div>
@@ -1694,7 +1694,20 @@ function TrackerTab({ combos, onToggle, onUrlChange, onFilenameChange, validatio
             <button
               onClick={()=>{
                 if(!window.confirm(`Remove ${selectedTrackerKeys.size} combo${selectedTrackerKeys.size!==1?"s":""} from Tracker? This deletes their validation results.`)) return;
-                setValidationStore(prev=>{const n={...prev};selectedTrackerKeys.forEach(k=>{delete n[k];});return n;});
+                setValidationStore(prev=>{
+                  const n={...prev};
+                  selectedTrackerKeys.forEach(comboKey=>{
+                    // Try exact key first
+                    if(n[comboKey]){ delete n[comboKey]; return; }
+                    // Fall back to hook+lead-only key (when validated without body/CTA)
+                    const combo=baseCombos.find(c=>c.key===comboKey);
+                    if(combo){
+                      const hlKey=`${combo.preHookId||"none"}+${combo.hookId}+${combo.leadId}+none+none`;
+                      delete n[hlKey];
+                    }
+                  });
+                  return n;
+                });
                 setSelectedTrackerKeys(new Set());
               }}
               className="px-3 py-1.5 bg-red-500 hover:bg-red-400 text-white text-xs font-bold rounded-full transition-colors">
