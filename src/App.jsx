@@ -353,11 +353,194 @@ function SpeakerRoster({ speakers, setSpeakers }) {
   );
 }
 
+// ── CSV helpers ───────────────────────────────────────────────────────────
+function parseCSVText(text) {
+  const lines = text.trim().split(/\r?\n/);
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g,'').toLowerCase());
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const values = [];
+    let inQuote = false, cur = '';
+    for (let j = 0; j < line.length; j++) {
+      const ch = line[j];
+      if (ch === '"') { inQuote = !inQuote; }
+      else if (ch === ',' && !inQuote) { values.push(cur.trim()); cur = ''; }
+      else { cur += ch; }
+    }
+    values.push(cur.trim());
+    const row = {};
+    headers.forEach((h, idx) => { row[h] = (values[idx] || '').replace(/^"|"$/g,''); });
+    rows.push(row);
+  }
+  return rows;
+}
+
+const CSV_TEMPLATE = `type,id,descriptor,text,tag,speaker,driveUrl
+hook,H1a,founder at desk,My businesses do over $1m a month and I started with nothing.,Founder,Alex,
+hook,H2a,outdoor casual,Real talk — here's exactly what's been working for us this month.,UGC,Jansen,
+lead,L1,,The problem isn't your product. It's how you're leading with it.,Founder,Alex,
+body,B1,,We restructured our approach and saw a 3x improvement in two weeks.,Any,,
+cta,CTA1,direct link,Click below to get the free framework.,Any,,
+prehook,PH1,AI avatar intro,Hey before you scroll — this is worth 30 seconds.,AI,,`;
+
+function BulkImportModal({ onClose, speakers, onImport }) {
+  const [csvText, setCsvText] = useState('');
+  const [preview, setPreview] = useState(null);
+  const [error, setError] = useState('');
+  const fileRef = useRef(null);
+
+  const TYPE_MAP = { prehook:'prehooks', hook:'hooks', lead:'leads', body:'bodies', cta:'ctas' };
+
+  const handleParse = (text) => {
+    setError('');
+    const rows = parseCSVText(text);
+    if (!rows.length) { setError('No data rows found. Check your CSV format.'); setPreview(null); return; }
+    const buckets = { prehooks:[], hooks:[], leads:[], bodies:[], ctas:[] };
+    const errs = [];
+    rows.forEach((r, i) => {
+      const type = TYPE_MAP[r.type?.toLowerCase?.()];
+      if (!type) { errs.push(`Row ${i+2}: unknown type "${r.type}"`); return; }
+      if (!r.id?.trim()) { errs.push(`Row ${i+2}: missing id`); return; }
+      if (!r.text?.trim()) { errs.push(`Row ${i+2}: missing text`); return; }
+      const validTags = ['Founder','UGC','AI','VO','Any'];
+      const tag = validTags.includes(r.tag) ? r.tag : 'Any';
+      buckets[type].push({ id:r.id.trim(), descriptor:(r.descriptor||'').trim(), text:r.text.trim(), tag, speaker:(r.speaker||'').trim(), driveUrl:(r.driveurl||r.driveUrl||'').trim(), videoFileName:'' });
+    });
+    if (errs.length) { setError(errs.join('\n')); }
+    setPreview({ buckets, total: rows.length - errs.length });
+  };
+
+  const handleFile = (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => { const t = ev.target.result; setCsvText(t); handleParse(t); };
+    reader.readAsText(f);
+  };
+
+  const downloadTemplate = () => {
+    const blob = new Blob([CSV_TEMPLATE], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'avs-import-template.csv'; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const doImport = () => {
+    if (!preview) return;
+    onImport(preview.buckets);
+    onClose();
+  };
+
+  const counts = preview ? Object.entries(preview.buckets).filter(([,v])=>v.length>0) : [];
+
+  return (
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+      <div className="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-4 border-b border-zinc-800">
+          <div>
+            <h2 className="text-white font-bold text-base">Bulk Import Assets</h2>
+            <p className="text-xs text-zinc-500 mt-0.5">Upload or paste a CSV file to add assets in bulk</p>
+          </div>
+          <button onClick={onClose} className="text-zinc-500 hover:text-white text-2xl leading-none">×</button>
+        </div>
+        <div className="p-4 space-y-4">
+          {/* Template + CSV format info */}
+          <div className="p-3 bg-zinc-800/60 rounded-lg border border-zinc-700/50 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Required CSV columns</span>
+              <button onClick={downloadTemplate} className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold rounded">⬇ Download template</button>
+            </div>
+            <div className="font-mono text-xs text-zinc-400 bg-zinc-900 rounded px-3 py-2 overflow-x-auto whitespace-nowrap">
+              type, id, descriptor, text, tag, speaker, driveUrl
+            </div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-zinc-500">
+              <div><span className="text-zinc-300 font-medium">type</span> — prehook, hook, lead, body, cta</div>
+              <div><span className="text-zinc-300 font-medium">tag</span> — Founder, UGC, AI, VO, Any</div>
+              <div><span className="text-zinc-300 font-medium">id</span> — unique ID (e.g. H1a, L3)</div>
+              <div><span className="text-zinc-300 font-medium">speaker</span> — optional name (e.g. Alex)</div>
+              <div><span className="text-zinc-300 font-medium">text</span> — script text (required)</div>
+              <div><span className="text-zinc-300 font-medium">descriptor</span> — optional short label</div>
+            </div>
+          </div>
+
+          {/* Upload */}
+          <div className="flex gap-2 items-center">
+            <label className="cursor-pointer px-3 py-1.5 bg-zinc-800 border border-zinc-600 hover:border-amber-500 text-zinc-300 text-xs rounded transition-colors">
+              📁 Choose CSV file
+              <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handleFile}/>
+            </label>
+            <span className="text-xs text-zinc-600">or paste below</span>
+          </div>
+
+          {/* Paste */}
+          <textarea
+            value={csvText}
+            onChange={e=>{ setCsvText(e.target.value); setPreview(null); setError(''); }}
+            placeholder={`Paste CSV here...\n\ntype,id,descriptor,text,tag,speaker,driveUrl\nhook,H1a,founder at desk,My businesses do over $1m...,Founder,Alex,`}
+            rows={6}
+            className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-amber-500 font-mono resize-none"
+          />
+          <button
+            onClick={()=>handleParse(csvText)}
+            disabled={!csvText.trim()}
+            className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 disabled:opacity-40 text-white text-sm font-medium rounded">
+            Preview import
+          </button>
+
+          {/* Errors */}
+          {error&&<div className="p-3 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-400 whitespace-pre-wrap">{error}</div>}
+
+          {/* Preview */}
+          {preview&&(
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="text-sm text-white font-medium">{preview.total} row{preview.total!==1?'s':''} ready to import:</span>
+                {counts.map(([type,items])=>(
+                  <span key={type} className="text-xs px-2 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-300">
+                    {items.length} {type}
+                  </span>
+                ))}
+              </div>
+              <div className="overflow-x-auto rounded border border-zinc-700">
+                <table className="w-full text-xs">
+                  <thead className="bg-zinc-800 text-zinc-400">
+                    <tr>{['type','id','descriptor','tag','speaker','text'].map(h=><th key={h} className="px-2 py-1.5 text-left font-medium whitespace-nowrap">{h}</th>)}</tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-800">
+                    {counts.flatMap(([,items])=>items).slice(0,50).map((r,i)=>(
+                      <tr key={i} className="text-zinc-300 hover:bg-zinc-800/50">
+                        <td className="px-2 py-1.5 font-mono text-amber-400">{Object.entries(TYPE_MAP).find(([,v])=>v===Object.entries(TYPE_MAP).find(([,v2])=>v2===Object.keys(preview.buckets).find(k=>preview.buckets[k].includes(r)))?.[1])?.[0]||'?'}</td>
+                        <td className="px-2 py-1.5 font-mono text-amber-400">{r.id}</td>
+                        <td className="px-2 py-1.5 text-zinc-400 italic">{r.descriptor||'—'}</td>
+                        <td className="px-2 py-1.5"><Tag tag={r.tag}/></td>
+                        <td className="px-2 py-1.5">{r.speaker?<span className="px-1.5 py-0.5 rounded-full bg-teal-500/15 text-teal-300 border border-teal-500/30">{r.speaker}</span>:'—'}</td>
+                        <td className="px-2 py-1.5 max-w-xs truncate text-zinc-400">{r.text}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {preview.total>50&&<div className="text-center text-xs text-zinc-600 py-2">…and {preview.total-50} more rows</div>}
+              </div>
+              <button onClick={doImport} className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-bold text-sm rounded-lg">
+                Import {preview.total} asset{preview.total!==1?'s':''} →
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function LibraryTab({ preHooks,setPreHooks,hooks,leads,bodies,ctas,setHooks,setLeads,setBodies,setCtas,validationStore,speakers,setSpeakers }) {
   const [activeSection,setActiveSection]=useState("All");
   const [tagSet,setTagSet]=useState(new Set());
   const [search,setSearch]=useState("");
   const [speakerFilter,setSpeakerFilter]=useState("All");
+  const [showImport,setShowImport]=useState(false);
   const sections=[
     {label:"Pre-hooks",items:preHooks,setter:setPreHooks,prefix:"PH",  singular:"Pre-hook"},
     {label:"Hooks",    items:hooks,   setter:setHooks,   prefix:"H",   singular:"Hook"    },
@@ -370,36 +553,59 @@ function LibraryTab({ preHooks,setPreHooks,hooks,leads,bodies,ctas,setHooks,setL
   const getMark=(label,id)=>{ const val=label==="Hooks"?hookMarks[id]:label==="Leads"?leadMarks[id]:undefined; if(val===true) return "valid"; if(val===false) return "invalid"; return undefined; };
   const filterItems=items=>items.filter(i=>{
     const matchSearch=search===""||i.id.toLowerCase().includes(search.toLowerCase())||i.text.toLowerCase().includes(search.toLowerCase())||(i.descriptor||"").toLowerCase().includes(search.toLowerCase())||(i.speaker||"").toLowerCase().includes(search.toLowerCase());
-    const matchSpeaker=speakerFilter==="All"||(i.speaker||"")===(speakerFilter==="(none)"?"":speakerFilter);
+    const matchSpeaker=speakerFilter==="All"||(speakerFilter==="(none)"?(!(i.speaker||"").trim()):(i.speaker||""===speakerFilter||(i.speaker||"")===speakerFilter));
     return tagMatch(i.tag,tagSet)&&matchSearch&&matchSpeaker;
   });
   const updateItem=(setter,id,patch)=>setter(prev=>prev.map(i=>i.id===id?{...i,...patch}:i));
   const visibleSections=sections.filter(s=>activeSection==="All"||s.label===activeSection);
 
-  // Collect all distinct speaker names used across all assets
-  const usedSpeakers=useMemo(()=>{
-    const names=new Set();
-    [...preHooks,...hooks,...leads,...bodies,...ctas].forEach(i=>{ if(i.speaker) names.add(i.speaker); });
-    return [...names].sort();
-  },[preHooks,hooks,leads,bodies,ctas]);
+  // All speaker names: roster first, then any ad-hoc names on assets not in roster
+  const allSpeakerNames=useMemo(()=>{
+    const rosterNames=speakers.map(s=>s.name);
+    const assetNames=[...preHooks,...hooks,...leads,...bodies,...ctas].map(i=>i.speaker).filter(Boolean);
+    const combined=new Set([...rosterNames,...assetNames]);
+    return [...combined].sort();
+  },[speakers,preHooks,hooks,leads,bodies,ctas]);
+
+  const handleImport=(buckets)=>{
+    if(buckets.prehooks?.length) setPreHooks(prev=>[...prev,...buckets.prehooks]);
+    if(buckets.hooks?.length)    setHooks(prev=>[...prev,...buckets.hooks]);
+    if(buckets.leads?.length)    setLeads(prev=>[...prev,...buckets.leads]);
+    if(buckets.bodies?.length)   setBodies(prev=>[...prev,...buckets.bodies]);
+    if(buckets.ctas?.length)     setCtas(prev=>[...prev,...buckets.ctas]);
+  };
 
   return (
     <div>
+      {showImport&&<BulkImportModal onClose={()=>setShowImport(false)} speakers={speakers} onImport={handleImport}/>}
       <SpeakerRoster speakers={speakers} setSpeakers={setSpeakers}/>
-      <div className="flex gap-1 mb-4 flex-wrap">
-        {["All","Pre-hooks","Hooks","Leads","Bodies","CTAs"].map(t=>(
-          <button key={t} onClick={()=>setActiveSection(t)}
-            className={`px-3 py-1.5 text-xs rounded-full font-medium ${activeSection===t?"bg-zinc-700 text-white":"bg-zinc-800/60 text-zinc-500 hover:text-zinc-300"}`}>{t}</button>
-        ))}
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div className="flex gap-1 flex-wrap">
+          {["All","Pre-hooks","Hooks","Leads","Bodies","CTAs"].map(t=>(
+            <button key={t} onClick={()=>setActiveSection(t)}
+              className={`px-3 py-1.5 text-xs rounded-full font-medium ${activeSection===t?"bg-zinc-700 text-white":"bg-zinc-800/60 text-zinc-500 hover:text-zinc-300"}`}>{t}</button>
+          ))}
+        </div>
+        <button onClick={()=>setShowImport(true)} className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 hover:border-amber-500 text-zinc-300 text-xs font-medium rounded-lg transition-colors">
+          ⬆ Bulk Import CSV
+        </button>
       </div>
       <FilterBar tagSet={tagSet} setTagSet={setTagSet} search={search} setSearch={setSearch} placeholder="Search ID, text, descriptor or speaker..."/>
-      {usedSpeakers.length>0&&(
+      {/* Combined tag + speaker filter row */}
+      {allSpeakerNames.length>0&&(
         <div className="flex items-center gap-2 mb-3 flex-wrap">
-          <span className="text-xs text-zinc-500">Speaker:</span>
-          {["All","(none)",...usedSpeakers].map(sp=>(
-            <button key={sp} onClick={()=>setSpeakerFilter(sp)}
-              className={`px-2.5 py-0.5 text-xs rounded-full font-medium transition-colors border ${speakerFilter===sp?"bg-teal-500/30 text-teal-300 border-teal-500/50":"bg-zinc-800 text-zinc-500 border-zinc-700 hover:text-zinc-300"}`}>{sp}</button>
-          ))}
+          <span className="text-xs text-zinc-500 shrink-0">Speaker:</span>
+          {["All","(none)",...allSpeakerNames].map(sp=>{
+            const active=speakerFilter===sp;
+            // Find role for roster speakers to show tag color hint
+            const rosterEntry=speakers.find(s=>s.name===sp);
+            return (
+              <button key={sp} onClick={()=>setSpeakerFilter(sp)}
+                className={`px-2.5 py-0.5 text-xs rounded-full font-medium transition-colors border ${active?"bg-teal-500/30 text-teal-300 border-teal-500/50":"bg-zinc-800 text-zinc-500 border-zinc-700 hover:text-zinc-300"}`}>
+                {sp}{rosterEntry&&sp!=="All"&&sp!=="(none)"?<span className={`ml-1 opacity-60`}>({rosterEntry.role})</span>:null}
+              </button>
+            );
+          })}
         </div>
       )}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1200,6 +1406,7 @@ function TrackerTab({ combos, onToggle, onUrlChange, onFilenameChange, validatio
   const [leadFilter,setLeadFilter]=useState("All");
   const [bodyFilter,setBodyFilter]=useState("All");
   const [statusFilter,setStatusFilter]=useState("All");
+  const [speakerFilter,setSpeakerFilter]=useState("All");
 
   const vrMap=useMemo(()=>{ const m={}; Object.values(validationStore).forEach(r=>{m[`${r.hookId}+${r.leadId}`]=r;}); return m; },[validationStore]);
   const assetMap=useMemo(()=>{
@@ -1223,17 +1430,30 @@ function TrackerTab({ combos, onToggle, onUrlChange, onFilenameChange, validatio
   const uniqueLeads   =["All",...new Set(baseCombos.map(c=>c.leadId))];
   const uniqueBodies  =["All",...new Set(baseCombos.map(c=>c.bodyId))];
 
+  // Collect all speaker names present on hook or lead assets in this combo set
+  const trackerSpeakers=useMemo(()=>{
+    const names=new Set();
+    baseCombos.forEach(c=>{
+      const hs=assetMap[c.hookId]?.speaker; if(hs) names.add(hs);
+      const ls=assetMap[c.leadId]?.speaker; if(ls) names.add(ls);
+    });
+    return [...names].sort();
+  },[baseCombos,assetMap]);
+
   const filtered=baseCombos.filter(c=>{
     const vr=vrMap[`${c.hookId}+${c.leadId}`];
-    const matchTag      =tagMatch(c.hookTag,tagSet)||tagMatch(c.leadTag,tagSet);
-    const matchSearch   =search===""||[c.preHookId,c.hookId,c.leadId,c.bodyId,c.ctaId].some(x=>x&&x.toLowerCase().includes(search.toLowerCase()));
+    const hSpeaker=assetMap[c.hookId]?.speaker||"";
+    const lSpeaker=assetMap[c.leadId]?.speaker||"";
+    const matchTag      =tagSet.size===0||tagMatch(c.hookTag,tagSet)||tagMatch(c.leadTag,tagSet);
+    const matchSearch   =search===""||[c.preHookId,c.hookId,c.leadId,c.bodyId,c.ctaId,hSpeaker,lSpeaker].some(x=>x&&x.toLowerCase().includes(search.toLowerCase()));
     const matchPreHook  =preHookFilter==="All"||(preHookFilter==="(none)"&&!c.preHookId)||(c.preHookId===preHookFilter);
     const matchHook     =hookFilter==="All"||c.hookId===hookFilter;
     const matchLead     =leadFilter==="All"||c.leadId===leadFilter;
     const matchBody     =bodyFilter==="All"||c.bodyId===bodyFilter;
+    const matchSpeaker  =speakerFilter==="All"||hSpeaker===speakerFilter||lSpeaker===speakerFilter;
     const matchStatus   =statusFilter==="All"||(statusFilter==="Created"&&c.created)||(statusFilter==="Pending"&&!c.created)
       ||(statusFilter==="Valid"&&vr?.valid===true)||(statusFilter==="Invalid"&&vr?.valid===false);
-    return matchTag&&matchSearch&&matchPreHook&&matchHook&&matchLead&&matchBody&&matchStatus;
+    return matchTag&&matchSearch&&matchPreHook&&matchHook&&matchLead&&matchBody&&matchSpeaker&&matchStatus;
   });
 
   const doneCombos=baseCombos.filter(c=>c.created).length;
@@ -1271,6 +1491,15 @@ function TrackerTab({ combos, onToggle, onUrlChange, onFilenameChange, validatio
             </select>
           </div>
         ))}
+        {trackerSpeakers.length>0&&(
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-zinc-500">Speaker:</span>
+            <select value={speakerFilter} onChange={e=>setSpeakerFilter(e.target.value)}
+              className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-amber-500">
+              {["All",...trackerSpeakers].map(o=><option key={o}>{o}</option>)}
+            </select>
+          </div>
+        )}
         <div className="flex items-center gap-1.5">
           <span className="text-xs text-zinc-500">Status:</span>
           <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}
