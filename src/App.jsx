@@ -1001,6 +1001,11 @@ function ValidateTab({ preHooks,hooks,leads,bodies,ctas,validationStore,setValid
   };
   const errorTasks=useMemo(()=>allTasks.filter(t=>(t.key in validationStore)&&validationStore[t.key].valid===null&&!validationStore[t.key].manual),[allTasks,validationStore]);
   const handleRetryErrors=()=>{ if(errorTasks.length>0) executeRun(errorTasks); };
+  // Re-run all combos in current scope, replacing their stored results (leaves unrelated store entries alone)
+  const handleRerunScope=()=>{
+    setValidationStore(prev=>{ const next={...prev}; allTasks.forEach(t=>delete next[t.key]); return next; });
+    setTimeout(()=>executeRun(allTasks),50);
+  };
   const handleConfirmOverwrite=()=>{
     const manualTasks=Object.keys(validationStore).filter(k=>confirmModal.manualKeys.has(k)).map(k=>{
       const v=validationStore[k];
@@ -1224,6 +1229,12 @@ function ValidateTab({ preHooks,hooks,leads,bodies,ctas,validationStore,setValid
             ):(
               <button onClick={()=>{ if(pendingQueue.length>0) executeRun(pendingQueue); }} className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-lg text-sm">
                 ▶ Resume ({pendingQueue.length} remaining)
+              </button>
+            )}
+            {!running&&!paused&&allTasks.length>0&&alreadyDone>0&&(
+              <button onClick={handleRerunScope} disabled={running}
+                className="px-4 py-2.5 bg-zinc-700 hover:bg-zinc-600 border border-zinc-600 text-white font-medium rounded-lg text-sm">
+                ↺ Re-run Scope ({allTasks.length})
               </button>
             )}
             {running&&<button onClick={()=>{pauseRef.current=true;}} className="px-4 py-2.5 bg-zinc-700 hover:bg-zinc-600 text-white font-bold rounded-lg text-sm">⏸ Pause</button>}
