@@ -1237,6 +1237,12 @@ function ValidateTab({ preHooks,hooks,leads,bodies,ctas,validationStore,setValid
                 ↺ Re-run Scope ({allTasks.length})
               </button>
             )}
+            {Object.keys(validationStore).length>0&&!running&&!locked&&(
+              <button onClick={()=>setShowLockModal(true)}
+                className="px-4 py-2.5 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-bold rounded-lg text-sm">
+                🔒 Lock Results
+              </button>
+            )}
             {running&&<button onClick={()=>{pauseRef.current=true;}} className="px-4 py-2.5 bg-zinc-700 hover:bg-zinc-600 text-white font-bold rounded-lg text-sm">⏸ Pause</button>}
             {errorTasks.length>0&&!running&&(
               <button onClick={handleRetryErrors}
