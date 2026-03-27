@@ -1506,11 +1506,13 @@ function TrackerTab({ combos, onToggle, onUrlChange, onFilenameChange, validatio
   },[preHooks,hooks,leads,bodies,ctas]);
 
   // Always show only validated+approved (AI ✅ or manually overridden ✅) combos
+  // Falls back to hook+lead-only key so combos validated without body/CTA still appear
   const baseCombos=useMemo(()=>{
     if(Object.keys(validationStore).length===0) return []; // nothing validated yet
     return combos.filter(c=>{
-      const key=`${c.preHookId||"none"}+${c.hookId}+${c.leadId}+${c.bodyId||"none"}+${c.ctaId||"none"}`;
-      const vr=validationStore[key];
+      const fullKey =`${c.preHookId||"none"}+${c.hookId}+${c.leadId}+${c.bodyId||"none"}+${c.ctaId||"none"}`;
+      const hlKey   =`${c.preHookId||"none"}+${c.hookId}+${c.leadId}+none+none`;
+      const vr=validationStore[fullKey]||validationStore[hlKey];
       return vr&&vr.valid===true;
     });
   },[combos,validationStore]);
@@ -2550,10 +2552,8 @@ export default function App() {
 
   const validationResults=Object.values(validationStore);
   const validPairs=useMemo(()=>{
-    if(!validationResults.length) return 0;
-    const validKeys=new Set(validationResults.filter(r=>r.valid===true).map(r=>`${r.hookId}+${r.leadId}`));
-    return validKeys.size * preHookSlots.length * bodies.length * ctas.length;
-  },[validationResults,preHookSlots.length,bodies.length,ctas.length]);
+    return validationResults.filter(r=>r.valid===true).length;
+  },[validationResults]);
 
   const done=combos.filter(c=>c.created).length;
   const total=combos.length;
