@@ -605,8 +605,8 @@ function LibraryTab({ preHooks,setPreHooks,hooks,transitions,setTransitions,lead
   const sections=[
     {label:"Pre-hooks",   items:preHooks,   setter:setPreHooks,   prefix:"PH",  singular:"Pre-hook",   showUniversal:false},
     {label:"Hooks",       items:hooks,      setter:setHooks,      prefix:"H",   singular:"Hook",       showUniversal:false},
-    {label:"Transitions", items:transitions,setter:setTransitions,prefix:"T",   singular:"Transition", showUniversal:true },
     {label:"Leads",       items:leads,      setter:setLeads,      prefix:"L",   singular:"Lead",       showUniversal:false},
+    {label:"Transitions", items:transitions,setter:setTransitions,prefix:"T",   singular:"Transition", showUniversal:true },
     {label:"Bodies",      items:bodies,     setter:setBodies,     prefix:"B",   singular:"Body",       showUniversal:false},
     {label:"CTAs",        items:ctas,       setter:setCtas,       prefix:"CTA", singular:"CTA",        showUniversal:false},
   ];
@@ -727,23 +727,23 @@ function LibraryTab({ preHooks,setPreHooks,hooks,transitions,setTransitions,lead
 }
 
 // ── Validation prompts by mode ─────────────────────────────────────────────
-function buildPrompt(hook, transition, lead, body, cta, mode) {
+function buildPrompt(hook, lead, transition, body, cta, mode) {
   const transPart=transition?`\nTransition: "${transition.text}"`:""
   const bodyPart=body?`\nBody: "${body.text}"`:""
   const ctaPart=cta?`\nCTA: "${cta.text}"`:""
   if (mode==="grammar") {
     return `You are a strict video ad script editor. Your job is to decide whether these segments can be stitched together and played back-to-back without confusing or losing the viewer.
 
-Hook: "${hook.text}"${transPart}
-Lead: "${lead.text}"${bodyPart}${ctaPart}
+Hook: "${hook.text}"
+Lead: "${lead.text}"${transPart}${bodyPart}${ctaPart}
 
 Mark as INVALID if ANY of the following are true:
-- The lead (or transition if present) starts with a connector word (but, and, so, because) that does NOT logically continue the specific thought from the hook
+- The lead starts with a connector word (but, and, so, because) that does NOT logically continue the specific thought from the hook
 - The lead introduces a completely new subject with no bridge from what the hook just said
 - A viewer hearing these back-to-back would feel a jarring jump or be confused about who is speaking or what the point is
 - The perspective or subject suddenly shifts (e.g. hook is about the speaker, lead is about the viewer) with no connecting logic
 - Tonal mismatch — e.g. raw/casual hook followed by a formal or structured lead
-- If a transition is present, it must bridge hook to lead naturally — evaluate the full hook→transition→lead flow
+- If a transition is present, it must bridge lead to body naturally — evaluate the full lead→transition→body flow
 
 Mark as VALID only if the segments flow directly and logically from exactly what was said before — as if it were one continuous sentence or thought.
 
@@ -754,12 +754,12 @@ Respond ONLY in this exact JSON format with no other text:
   }
   return `You are a strict video ad script editor evaluating whether these segments work as a cohesive narrative when played back-to-back.
 
-Hook: "${hook.text}"${transPart}
-Lead: "${lead.text}"${bodyPart}${ctaPart}
+Hook: "${hook.text}"
+Lead: "${lead.text}"${transPart}${bodyPart}${ctaPart}
 
 Mark as INVALID if ANY of the following are true:
 - The lead does not follow from the hook's specific premise, claim, or emotional direction
-- If a transition is present, it must connect hook to lead — a transition that doesn't bridge the gap makes the combo invalid
+- If a transition is present, it must connect lead to body — a transition that doesn't bridge the gap makes the combo invalid
 - The body (if present) does not deliver on what the hook and lead set up
 - The CTA (if present) feels disconnected in tone or energy from the rest
 - There is no clear logical throughline a viewer could follow from start to finish
@@ -773,9 +773,9 @@ Respond ONLY in this exact JSON format with no other text:
 {"valid": true or false, "reason": "One sentence explaining the specific narrative connection or the exact point of breakdown."}`;
 }
 
-async function callValidate(hook, transition, lead, body, cta, mode, apiKey) {
+async function callValidate(hook, lead, transition, body, cta, mode, apiKey) {
   if(!apiKey) throw new Error("No API key");
-  const prompt=buildPrompt(hook,transition,lead,body,cta,mode);
+  const prompt=buildPrompt(hook,lead,transition,body,cta,mode);
   const res=await fetch("https://api.anthropic.com/v1/messages",{
     method:"POST",
     headers:{
@@ -831,9 +831,9 @@ function ResultCard({ result, hookText, leadText, bodyText, ctaText, onOverride,
         {/* IDs */}
         <div className="flex items-center gap-1 flex-wrap shrink-0">
           <span className="font-mono text-amber-400 text-xs font-bold">{result.hookId}</span>
-          {result.transitionId&&<><span className="text-zinc-600 text-xs">+</span><span className="font-mono text-teal-400 text-xs font-bold">{result.transitionId}</span></>}
           <span className="text-zinc-600 text-xs">+</span>
           <span className="font-mono text-sky-400 text-xs font-bold">{result.leadId}</span>
+          {result.transitionId&&<><span className="text-zinc-600 text-xs">+</span><span className="font-mono text-teal-400 text-xs font-bold">{result.transitionId}</span></>}
           {result.bodyId&&<><span className="text-zinc-600 text-xs">+</span><span className="font-mono text-purple-400 text-xs font-bold">{result.bodyId}</span></>}
           {result.ctaId&&<><span className="text-zinc-600 text-xs">+</span><span className="font-mono text-pink-400 text-xs font-bold">{result.ctaId}</span></>}
         </div>
@@ -1022,8 +1022,8 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
 
   const allTasks=useMemo(()=>{
     const tasks=[];
-    for(const ph of preHooksToRun) for(const h of hooksToRun) for(const t of transitionsToRun) for(const l of leadsToRun) for(const b of bodiesToRun) for(const c of ctasToRun){
-      const key=`${ph?.id||"none"}+${h.id}+${t?.id||"none"}+${l.id}+${b?.id||"none"}+${c?.id||"none"}`;
+    for(const ph of preHooksToRun) for(const h of hooksToRun) for(const l of leadsToRun) for(const t of transitionsToRun) for(const b of bodiesToRun) for(const c of ctasToRun){
+      const key=`${ph?.id||"none"}+${h.id}+${l.id}+${t?.id||"none"}+${b?.id||"none"}+${c?.id||"none"}`;
       tasks.push({ph,h,t,l,b,c,key});
     }
     return tasks;
@@ -1044,7 +1044,7 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
         setValidationStore(prev=>({...prev,[key]:{...baseEntry,valid:true,reason:"Universal transition — automatically approved.",manual:false}}));
       } else {
         try {
-          const res=await callValidate(h,t,l,b,c,validationMode,anthropicKey);
+          const res=await callValidate(h,l,t,b,c,validationMode,anthropicKey);
           setValidationStore(prev=>({...prev,[key]:{...baseEntry,valid:res.valid,reason:res.reason,manual:false}}));
         } catch(err) {
           setValidationStore(prev=>({...prev,[key]:{...baseEntry,valid:null,reason:`Error: ${err?.message||"Unknown error"}`,manual:false}}));
@@ -1228,6 +1228,18 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
           </div>
         </div>
 
+        {/* Leads */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="text-xs text-zinc-400 uppercase tracking-widest font-semibold">Leads <span className="text-sky-400 font-bold ml-1 normal-case">{leadsToRun.length} selected</span></label>
+            <button onClick={()=>setSelectedLeads(null)} className="text-xs text-zinc-500 hover:text-zinc-300">Select all</button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {visibleLeads.length===0?<span className="text-zinc-600 text-xs">No leads match.</span>
+              :visibleLeads.map(l=><AssetChip key={l.id} item={l} selected={isSelected(selectedLeads,l.id)} onToggle={toggle(setSelectedLeads,()=>visibleLeads)}/>)}
+          </div>
+        </div>
+
         {/* Transitions */}
         {visibleTransitions.length>0&&(
           <div className="space-y-2">
@@ -1256,18 +1268,6 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
             </div>}
           </div>
         )}
-
-        {/* Leads */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <label className="text-xs text-zinc-400 uppercase tracking-widest font-semibold">Leads <span className="text-sky-400 font-bold ml-1 normal-case">{leadsToRun.length} selected</span></label>
-            <button onClick={()=>setSelectedLeads(null)} className="text-xs text-zinc-500 hover:text-zinc-300">Select all</button>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {visibleLeads.length===0?<span className="text-zinc-600 text-xs">No leads match.</span>
-              :visibleLeads.map(l=><AssetChip key={l.id} item={l} selected={isSelected(selectedLeads,l.id)} onToggle={toggle(setSelectedLeads,()=>visibleLeads)}/>)}
-          </div>
-        </div>
 
         {/* Bodies */}
         <div className="space-y-2">
@@ -1316,8 +1316,8 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
               Scope:{preHookMode!=="none"&&<>{" "}<span className="text-rose-400 font-bold">{preHooksToRun.length}PH</span>{" × "}</>}
               {preHookMode==="none"&&" "}
               <span className="text-amber-400 font-bold">{hooksToRun.length}H</span>{" × "}
-              {transitionMode!=="none"&&<><span className="text-teal-400 font-bold">{transitionsToRun.length}T</span>{" × "}</>}
               <span className="text-sky-400 font-bold">{leadsToRun.length}L</span>
+              {transitionMode!=="none"&&<>{" × "}<span className="text-teal-400 font-bold">{transitionsToRun.length}T</span></>}
               {bodyMode!=="none"&&<>{" × "}<span className="text-purple-400 font-bold">{bodiesToRun.length}B</span></>}
               {ctaMode!=="none"&&<>{" × "}<span className="text-pink-400 font-bold">{ctasToRun.length}CTA</span></>}
               {" = "}<span className="text-white font-bold">{totalCombos} combos</span>
@@ -1588,9 +1588,9 @@ function ComboRow({ combo, vr, assetMap, onToggle, onUrlChange, onFilenameChange
           </>}
           <span className="font-mono text-amber-400 text-xs font-bold">{combo.hookId}</span>
           {combo.hookDescriptor&&<span className="text-zinc-600 text-xs italic">({combo.hookDescriptor})</span>}
-          {combo.transitionId&&<><span className="text-zinc-600 text-xs">+</span><span className="font-mono text-teal-400 text-xs font-bold">{combo.transitionId}</span></>}
           <span className="text-zinc-600 text-xs">+</span>
           <span className="font-mono text-sky-400 text-xs font-bold">{combo.leadId}</span>
+          {combo.transitionId&&<><span className="text-zinc-600 text-xs">+</span><span className="font-mono text-teal-400 text-xs font-bold">{combo.transitionId}</span></>}
           <span className="text-zinc-600 text-xs">+</span>
           <span className="font-mono text-purple-400 text-xs font-bold">{combo.bodyId}</span>
           <span className="text-zinc-600 text-xs">+</span>
@@ -1723,8 +1723,8 @@ function TrackerTab({ combos, onToggle, onUrlChange, onFilenameChange, validatio
     if(Object.keys(validationStore).length===0) return [];
     const seenFallback=new Set();
     return combos.filter(c=>{
-      const fullKey=`${c.preHookId||"none"}+${c.hookId}+${c.transitionId||"none"}+${c.leadId}+${c.bodyId||"none"}+${c.ctaId||"none"}`;
-      const hlKey  =`${c.preHookId||"none"}+${c.hookId}+none+${c.leadId}+none+none`;
+      const fullKey=`${c.preHookId||"none"}+${c.hookId}+${c.leadId}+${c.transitionId||"none"}+${c.bodyId||"none"}+${c.ctaId||"none"}`;
+      const hlKey  =`${c.preHookId||"none"}+${c.hookId}+${c.leadId}+none+none+none`;
       if(validationStore[fullKey]?.valid===true) return true;      // exact match — always include
       if(validationStore[hlKey]?.valid===true){                     // fallback — one row per pair only
         if(seenFallback.has(hlKey)) return false;
@@ -1851,7 +1851,7 @@ function TrackerTab({ combos, onToggle, onUrlChange, onFilenameChange, validatio
           </div>
         )}
         {filtered.map(combo=>{
-          const vr=validationStore[combo.key]||validationStore[`${combo.preHookId||"none"}+${combo.hookId}+none+${combo.leadId}+none+none`];
+          const vr=validationStore[combo.key]||validationStore[`${combo.preHookId||"none"}+${combo.hookId}+${combo.leadId}+none+none+none`];
           return (
             <ComboRow key={combo.key} combo={combo} vr={vr} assetMap={assetMap}
               onToggle={onToggle} onUrlChange={onUrlChange} onFilenameChange={onFilenameChange}
@@ -1888,7 +1888,7 @@ function TrackerTab({ combos, onToggle, onUrlChange, onFilenameChange, validatio
                     // Fall back to hook+lead-only key (when validated without body/CTA)
                     const combo=baseCombos.find(c=>c.key===comboKey);
                     if(combo){
-                      const hlKey=`${combo.preHookId||"none"}+${combo.hookId}+none+${combo.leadId}+none+none`;
+                      const hlKey=`${combo.preHookId||"none"}+${combo.hookId}+${combo.leadId}+none+none+none`;
                       delete n[hlKey];
                     }
                   });
@@ -2234,8 +2234,8 @@ function StitchTab({ combos, validationStore, preHooks, hooks, transitions, lead
   // If a stitchQueue exists (sent from Tracker), only show those combos
   const validCombos = useMemo(() => {
     const all = combos.filter(c => {
-      const fullKey = `${c.preHookId||"none"}+${c.hookId}+${c.transitionId||"none"}+${c.leadId}+${c.bodyId||"none"}+${c.ctaId||"none"}`;
-      const hlKey   = `${c.preHookId||"none"}+${c.hookId}+none+${c.leadId}+none+none`;
+      const fullKey = `${c.preHookId||"none"}+${c.hookId}+${c.leadId}+${c.transitionId||"none"}+${c.bodyId||"none"}+${c.ctaId||"none"}`;
+      const hlKey   = `${c.preHookId||"none"}+${c.hookId}+${c.leadId}+none+none+none`;
       const vr = validationStore[fullKey] || validationStore[hlKey];
       return vr && vr.valid === true;
     });
@@ -2247,8 +2247,8 @@ function StitchTab({ combos, validationStore, preHooks, hooks, transitions, lead
     const s = [];
     if (combo.preHookId)    s.push({ id: combo.preHookId,    label: "Pre-hook"   });
     s.push({ id: combo.hookId, label: "Hook" });
-    if (combo.transitionId) s.push({ id: combo.transitionId, label: "Transition" });
     s.push({ id: combo.leadId, label: "Lead" });
+    if (combo.transitionId) s.push({ id: combo.transitionId, label: "Transition" });
     if (combo.bodyId) s.push({ id: combo.bodyId, label: "Body" });
     if (combo.ctaId)  s.push({ id: combo.ctaId,  label: "CTA"  });
     return s;
@@ -2439,7 +2439,7 @@ function StitchTab({ combos, validationStore, preHooks, hooks, transitions, lead
                     <input type="checkbox" checked={isSelected} onChange={() => toggleKey(combo.key)} disabled={batchRunning}
                       className="accent-amber-500 w-3.5 h-3.5 shrink-0"/>
                     <div className="flex items-center gap-1 flex-1 min-w-0 flex-wrap">
-                      {[combo.preHookId, combo.hookId, combo.transitionId, combo.leadId, combo.bodyId, combo.ctaId].filter(Boolean).map((id, i, arr) => (
+                      {[combo.preHookId, combo.hookId, combo.leadId, combo.transitionId, combo.bodyId, combo.ctaId].filter(Boolean).map((id, i, arr) => (
                         <span key={id} className="flex items-center gap-1">
                           <span className="font-mono text-amber-400 text-xs font-bold">{id}</span>
                           {i < arr.length - 1 && <span className="text-zinc-600 text-xs">+</span>}
@@ -2798,12 +2798,12 @@ export default function App() {
 
   const combos=useMemo(()=>{
     const all=[];
-    for(const ph of preHookSlots) for(const h of hooks) for(const t of transitionSlots) for(const l of leads) for(const b of bodies) for(const c of ctas){
-      const key=`${ph?.id||"none"}+${h.id}+${t?.id||"none"}+${l.id}+${b.id}+${c.id}`;
+    for(const ph of preHookSlots) for(const h of hooks) for(const l of leads) for(const t of transitionSlots) for(const b of bodies) for(const c of ctas){
+      const key=`${ph?.id||"none"}+${h.id}+${l.id}+${t?.id||"none"}+${b.id}+${c.id}`;
       const phDesc=ph?.descriptor?`(${ph.descriptor.replace(/\s+/g,"-")})`:"";
       const hDesc=h.descriptor?`(${h.descriptor.replace(/\s+/g,"-")})`:"";
       const tDesc=t?.descriptor?`(${t.descriptor.replace(/\s+/g,"-")})`:"";
-      const autoFilename=`${ph?`${ph.id}${phDesc}`:""}${h.id}${hDesc}${t?`${t.id}${tDesc}`:""}${l.id}${b.id}${c.id}`;
+      const autoFilename=`${ph?`${ph.id}${phDesc}`:""}${h.id}${hDesc}${l.id}${t?`${t.id}${tDesc}`:""}${b.id}${c.id}`;
       all.push({key,preHookId:ph?.id||null,hookId:h.id,transitionId:t?.id||null,leadId:l.id,bodyId:b.id,ctaId:c.id,
         hookTag:h.tag,leadTag:l.tag,preHookTag:ph?.tag||null,hookDescriptor:h.descriptor||"",
         created:comboData[key]?.created||false,date:comboData[key]?.date||"",url:comboData[key]?.url||"",
@@ -2814,7 +2814,7 @@ export default function App() {
 
   // Only count results that belong to the current combo scope (exact key or hook+lead-only fallback)
   const comboKeySet=useMemo(()=>new Set(combos.map(c=>c.key)),[combos]);
-  const comboHlKeySet=useMemo(()=>new Set(combos.map(c=>`${c.preHookId||"none"}+${c.hookId}+none+${c.leadId}+none+none`)),[combos]);
+  const comboHlKeySet=useMemo(()=>new Set(combos.map(c=>`${c.preHookId||"none"}+${c.hookId}+${c.leadId}+none+none+none`)),[combos]);
   const validationResults=useMemo(()=>
     Object.values(validationStore).filter(r=>comboKeySet.has(r.key)||comboHlKeySet.has(r.key)),
   [validationStore,comboKeySet,comboHlKeySet]);
@@ -2976,7 +2976,7 @@ export default function App() {
 
   const syncAll=async(approvedCombos)=>{
     for(const combo of approvedCombos){
-      const vr=validationStore[combo.key]||validationStore[`${combo.preHookId||"none"}+${combo.hookId}+none+${combo.leadId}+none+none`];
+      const vr=validationStore[combo.key]||validationStore[`${combo.preHookId||"none"}+${combo.hookId}+${combo.leadId}+none+none+none`];
       await syncRow(combo,vr);
       await new Promise(r=>setTimeout(r,200));
     }
