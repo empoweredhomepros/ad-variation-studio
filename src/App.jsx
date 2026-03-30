@@ -1088,7 +1088,13 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
 
   // Only count results that belong to the current scope (allTasks), not stale results from previous runs
   const scopeKeys=useMemo(()=>new Set(allTasks.map(t=>t.key)),[allTasks]);
-  const results=Object.values(validationStore).filter(r=>scopeKeys.has(r.key));
+  // For display: show ALL stored results whose hook+lead exist in the current asset library
+  // (scope selection controls Run button only — results persist across tab switches and refreshes)
+  const hookIdSet=useMemo(()=>new Set(hooks.map(h=>h.id)),[hooks]);
+  const leadIdSet=useMemo(()=>new Set(leads.map(l=>l.id)),[leads]);
+  const results=useMemo(()=>
+    Object.values(validationStore).filter(r=>hookIdSet.has(r.hookId)&&leadIdSet.has(r.leadId))
+  ,[validationStore,hookIdSet,leadIdSet]);
   const allResults=Object.values(validationStore); // used for the results list display
   const aiValidCount    =results.filter(r=>r.valid===true&&!r.manual&&!r.archived).length;
   const inTrackerCount  =results.filter(r=>r.valid===true&&r.manual).length;
