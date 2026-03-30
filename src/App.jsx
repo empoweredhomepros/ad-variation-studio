@@ -2370,36 +2370,28 @@ function StitchTab({ combos, validationStore, preHooks, hooks, transitions, lead
       fileNames.push(fname);
     }
 
-    // ── Step 1: Try fast copy-concat (no re-encoding — very fast) ──────────
-    setStatusLabel("Attempting fast stitch (no re-encode)…");
-    const outName = `out_${safe}.mp4`;
-    await ffmpeg.writeFile("concat_list.txt", fileNames.map(f => `file '${f}'`).join("\n"));
-    const fastRet = await ffmpeg.exec(["-f", "concat", "-safe", "0", "-i", "concat_list.txt", "-c", "copy", "-movflags", "+faststart", outName]);
-
-    if (fastRet === 0) {
-      // Fast path worked — skip normalization entirely
-      setStatusLabel("Fast stitch complete!");
-    } else {
-      // ── Step 2: Fallback — normalize each segment then concat ─────────
-      setStatusLabel("Fast stitch failed — normalizing segments (this may take a few minutes)…");
-      const vf = "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,fps=30,format=yuv420p";
-      const normNames = [];
-      for (let i = 0; i < fileNames.length; i++) {
-        setStatusLabel(`Normalizing segment ${i+1} of ${fileNames.length}… (slow — different formats detected)`);
-        const normName = `norm_${safe}_${i}.mp4`;
-        let r = await ffmpeg.exec(["-i", fileNames[i], "-vf", vf, "-c:v", "libx264", "-preset", "ultrafast", "-map", "0:v:0", "-map", "0:a:0", "-c:a", "aac", "-ar", "44100", "-ac", "2", normName]);
-        if (r !== 0) {
-          r = await ffmpeg.exec(["-i", fileNames[i], "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-vf", vf, "-c:v", "libx264", "-preset", "ultrafast", "-map", "0:v:0", "-map", "1:a", "-c:a", "aac", "-ar", "44100", "-ac", "2", "-shortest", normName]);
-          if (r !== 0) throw new Error(`Could not normalize segment ${i + 1}.\n${logs.slice(-5).join("\n")}`);
-        }
-        normNames.push(normName);
+    // Normalize each segment to ensure consistent format before concat
+    setStatusLabel("Normalizing segments…");
+    const vf = "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,fps=30,format=yuv420p";
+    const normNames = [];
+    for (let i = 0; i < fileNames.length; i++) {
+      setStatusLabel(`Normalizing segment ${i+1} of ${fileNames.length}…`);
+      const normName = `norm_${safe}_${i}.mp4`;
+      let r = await ffmpeg.exec(["-i", fileNames[i], "-vf", vf, "-c:v", "libx264", "-preset", "ultrafast", "-map", "0:v:0", "-map", "0:a:0", "-c:a", "aac", "-ar", "44100", "-ac", "2", normName]);
+      if (r !== 0) {
+        r = await ffmpeg.exec(["-i", fileNames[i], "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-vf", vf, "-c:v", "libx264", "-preset", "ultrafast", "-map", "0:v:0", "-map", "1:a", "-c:a", "aac", "-ar", "44100", "-ac", "2", "-shortest", normName]);
+        if (r !== 0) throw new Error(`Could not normalize segment ${i + 1}.\n${logs.slice(-5).join("\n")}`);
       }
-      setStatusLabel("Stitching normalized segments…");
-      await ffmpeg.writeFile("concat_list.txt", normNames.map(f => `file '${f}'`).join("\n"));
-      const ret = await ffmpeg.exec(["-f", "concat", "-safe", "0", "-i", "concat_list.txt", "-c", "copy", "-movflags", "+faststart", outName]);
-      if (ret !== 0) throw new Error(`FFmpeg concat failed.\n${logs.slice(-5).join("\n")}`);
-      for (const f of normNames) { try { await ffmpeg.deleteFile(f); } catch {} }
+      normNames.push(normName);
     }
+
+    // Concat normalized segments
+    setStatusLabel("Stitching clips together…");
+    const outName = `out_${safe}.mp4`;
+    await ffmpeg.writeFile("concat_list.txt", normNames.map(f => `file '${f}'`).join("\n"));
+    const ret = await ffmpeg.exec(["-f", "concat", "-safe", "0", "-i", "concat_list.txt", "-c", "copy", "-movflags", "+faststart", outName]);
+    if (ret !== 0) throw new Error(`FFmpeg concat failed.\n${logs.slice(-5).join("\n")}`);
+    for (const f of normNames) { try { await ffmpeg.deleteFile(f); } catch {} }
 
     // Download
     const data = await ffmpeg.readFile(outName);
