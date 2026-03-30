@@ -1090,10 +1090,11 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
   const scopeKeys=useMemo(()=>new Set(allTasks.map(t=>t.key)),[allTasks]);
   const results=Object.values(validationStore).filter(r=>scopeKeys.has(r.key));
   const allResults=Object.values(validationStore); // used for the results list display
-  const aiValidCount    =results.filter(r=>r.valid===true&&!r.manual).length;
+  const aiValidCount    =results.filter(r=>r.valid===true&&!r.manual&&!r.archived).length;
   const inTrackerCount  =results.filter(r=>r.valid===true&&r.manual).length;
   const manualValidCount=inTrackerCount;
-  const invalidCount    =results.filter(r=>r.valid===false).length;
+  const invalidCount    =results.filter(r=>r.valid===false&&!r.archived).length;
+  const archivedCount   =results.filter(r=>!!r.archived).length;
   const manualCount     =results.filter(r=>r.manual).length;
   const remainingCount  =aiValidCount; // valid AI results not yet moved to tracker
 
@@ -1122,7 +1123,15 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
     const lSpk=leadSpeakerMap[r.leadId]||"";
     const matchSpeaker=resSpeakerFilter==="All"||hSpk===resSpeakerFilter||lSpk===resSpeakerFilter;
     const matchSearch=resSearch===""||r.hookId.toLowerCase().includes(resSearch.toLowerCase())||r.leadId.toLowerCase().includes(resSearch.toLowerCase());
-    const matchValid=validFilter==="All"||(validFilter==="Valid"&&r.valid===true&&!r.manual)||(validFilter==="Invalid"&&r.valid===false)||(validFilter==="InTracker"&&r.manual&&r.valid)||(validFilter==="Unreviewed"&&!r.reviewed);
+    const inTracker=r.manual&&r.valid;
+    const isArchived=!!r.archived;
+    let matchValid=false;
+    if(validFilter==="All")         matchValid=!inTracker&&!isArchived;
+    else if(validFilter==="Valid")   matchValid=r.valid===true&&!inTracker&&!isArchived;
+    else if(validFilter==="Invalid") matchValid=r.valid===false&&!isArchived;
+    else if(validFilter==="InTracker") matchValid=inTracker;
+    else if(validFilter==="Archived")  matchValid=isArchived;
+    else if(validFilter==="Unreviewed") matchValid=!r.reviewed&&!inTracker&&!isArchived;
     return matchTag&&matchSpeaker&&matchSearch&&matchValid;
   });
 
@@ -1370,6 +1379,7 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
                 <span className="text-zinc-600">·</span>
                 <span className="text-red-400 font-bold">❌ {invalidCount}</span>
                 {errorTasks.length>0&&<><span className="text-zinc-600">·</span><span className="text-orange-400 font-bold">⚠️ {errorTasks.length} errors</span></>}
+                {archivedCount>0&&<><span className="text-zinc-600">·</span><span className="text-zinc-500">📦 {archivedCount} archived</span></>}
               </div>
             )}
           </div>
@@ -1436,16 +1446,17 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
             {/* Verdict filter pills */}
             <div className="flex gap-1 ml-auto flex-wrap">
               {[
-                {id:"All",      label:"All"},
-                {id:"Valid",    label:"✅ Valid"},
-                {id:"Invalid",  label:"❌ Invalid"},
-                {id:"InTracker",label:"➡ In Tracker"},
+                {id:"All",       label:"All"},
+                {id:"Valid",     label:"✅ Valid"},
+                {id:"Invalid",   label:"❌ Invalid"},
+                {id:"InTracker", label:"➡ In Tracker"},
                 {id:"Unreviewed",label:"👁 Unreviewed"},
+                {id:"Archived",  label:"📦 Archived"},
               ].map(({id,label})=>(
                 <button key={id} onClick={()=>setValidFilter(id)}
                   className={`px-2.5 py-1 text-xs rounded-full font-medium transition-colors
                     ${validFilter===id
-                      ?id==="Valid"?"bg-emerald-500 text-black":id==="Invalid"?"bg-red-500 text-white":id==="InTracker"?"bg-amber-500 text-black":id==="Unreviewed"?"bg-teal-500 text-black":"bg-zinc-600 text-white"
+                      ?id==="Valid"?"bg-emerald-500 text-black":id==="Invalid"?"bg-red-500 text-white":id==="InTracker"?"bg-amber-500 text-black":id==="Unreviewed"?"bg-teal-500 text-black":id==="Archived"?"bg-zinc-500 text-white":"bg-zinc-600 text-white"
                       :"bg-zinc-800 text-zinc-400 hover:text-white"}`}>
                   {label}
                 </button>
@@ -1497,6 +1508,21 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
                   className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 text-red-400 text-xs font-semibold rounded-lg transition-colors">
                   ❌ Mark Invalid
                 </button>
+                {validFilter!=="Archived"&&(
+                  <button
+                    onClick={()=>{ setValidationStore(prev=>{ const n={...prev}; selectedResultKeys.forEach(k=>{ if(n[k]) n[k]={...n[k],archived:true,reviewed:true}; }); return n; }); setSelectedResultKeys(new Set()); }}
+                    className="px-3 py-1.5 bg-zinc-700/60 hover:bg-zinc-600/60 border border-zinc-600 text-zinc-400 hover:text-zinc-300 text-xs font-semibold rounded-lg transition-colors"
+                    title="Hide from view — still stored so these combos won't be re-matched">
+                    📦 Archive
+                  </button>
+                )}
+                {validFilter==="Archived"&&(
+                  <button
+                    onClick={()=>{ setValidationStore(prev=>{ const n={...prev}; selectedResultKeys.forEach(k=>{ if(n[k]){ const u={...n[k]}; delete u.archived; n[k]=u; } }); return n; }); setSelectedResultKeys(new Set()); }}
+                    className="px-3 py-1.5 bg-zinc-700/60 hover:bg-zinc-600/60 border border-zinc-600 text-zinc-300 text-xs font-semibold rounded-lg transition-colors">
+                    ↩ Unarchive
+                  </button>
+                )}
                 <button
                   onClick={()=>{ setValidationStore(prev=>{ const n={...prev}; selectedResultKeys.forEach(k=>{ if(n[k]) n[k]={...n[k],reviewed:true}; }); return n; }); setSelectedResultKeys(new Set()); }}
                   className="px-3 py-1.5 bg-teal-500/20 hover:bg-teal-500/30 border border-teal-500/40 text-teal-400 text-xs font-semibold rounded-lg transition-colors">
