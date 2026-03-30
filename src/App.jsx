@@ -1611,10 +1611,11 @@ function FilenameField({ value, onChange }) {
   );
 }
 
-function ComboRow({ combo, vr, assetMap, onToggle, onUrlChange, onFilenameChange, sheetsUrl, syncStatus, onSync, selected, onSelect }) {
+function ComboRow({ combo, vr, assetMap, onToggle, onSetVideoStatus, onUrlChange, onFilenameChange, sheetsUrl, syncStatus, onSync, selected, onSelect }) {
   const [open, setOpen] = useState(false);
-  const borderCls = selected ? "border-teal-500/50" : combo.created ? "border-emerald-500/20" : vr?.valid===false ? "border-red-500/15" : "border-zinc-700/40";
-  const bgCls     = selected ? "bg-teal-500/8"      : combo.created ? "bg-emerald-500/5"      : vr?.valid===false ? "bg-red-500/5"      : "bg-zinc-800/40";
+  const vs = combo.videoStatus;
+  const borderCls = selected ? "border-teal-500/50" : vs==="approved" ? "border-emerald-500/30" : vs==="rejected" ? "border-red-500/25" : vs==="stitched" ? "border-amber-500/25" : vr?.valid===false ? "border-red-500/15" : "border-zinc-700/40";
+  const bgCls     = selected ? "bg-teal-500/8"      : vs==="approved" ? "bg-emerald-500/6"      : vs==="rejected" ? "bg-red-500/6"      : vs==="stitched" ? "bg-amber-500/5"      : vr?.valid===false ? "bg-red-500/5"      : "bg-zinc-800/40";
 
   const assetSlots = [
     ...(combo.preHookId ? [{id:combo.preHookId,label:"Pre-hook",idColor:"text-rose-400",  border:"border-rose-500/20",   bg:"bg-rose-500/5"  }] : []),
@@ -1633,16 +1634,15 @@ function ComboRow({ combo, vr, assetMap, onToggle, onUrlChange, onFilenameChange
         {onSelect&&<input type="checkbox" checked={!!selected} onChange={e=>onSelect(e.target.checked)}
           onClick={e=>e.stopPropagation()}
           className="accent-teal-500 w-3.5 h-3.5 shrink-0 cursor-pointer" title="Select for Stitcher"/>}
-        {/* Complete toggle */}
-        <button
-          onClick={()=>onToggle(combo.key)}
-          title={combo.created?"Mark as incomplete":"Mark as complete"}
-          className={`shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-semibold transition-all
-            ${combo.created
-              ?"bg-emerald-500/20 border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/10"
-              :"bg-zinc-800 border-zinc-700 text-zinc-500 hover:border-emerald-500/40 hover:text-emerald-400"}`}>
-          {combo.created?"✓ Done":"Mark Done"}
-        </button>
+        {/* Video status */}
+        {!vs&&<span className="shrink-0 text-xs text-zinc-600 px-2 py-0.5 rounded-full border border-zinc-700/50">⬜ Not stitched</span>}
+        {vs==="stitched"&&<div className="shrink-0 flex items-center gap-1">
+          <span className="text-xs text-amber-400 font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30">🎬 Stitched</span>
+          <button onClick={()=>onSetVideoStatus(combo.key,"approved")} className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/25 font-semibold transition-all">✅ Approve</button>
+          <button onClick={()=>onSetVideoStatus(combo.key,"rejected")} className="text-xs px-2 py-0.5 rounded-full bg-red-500/15 border border-red-500/40 text-red-400 hover:bg-red-500/25 font-semibold transition-all">❌ Unusable</button>
+        </div>}
+        {vs==="approved"&&<button onClick={()=>onSetVideoStatus(combo.key,"stitched")} title="Click to reset status" className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/10 font-semibold transition-all">✅ Approved</button>}
+        {vs==="rejected"&&<button onClick={()=>onSetVideoStatus(combo.key,"stitched")} title="Click to reset status" className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-red-500/20 border border-red-500/50 text-red-400 hover:bg-red-500/10 font-semibold transition-all">❌ Unusable</button>}
         {vr&&<span className="text-sm shrink-0">{vr.manual?"✏️":vr.valid?"✅":"❌"}</span>}
         <div className="flex items-center gap-1 shrink-0 flex-wrap">
           {combo.preHookId&&<>
@@ -1661,7 +1661,7 @@ function ComboRow({ combo, vr, assetMap, onToggle, onUrlChange, onFilenameChange
         </div>
         <Tag tag={combo.hookTag}/>
         <FilenameField value={combo.filename||combo.autoFilename} onChange={v=>onFilenameChange(combo.key,v)}/>
-        {combo.created&&<span className="text-xs text-zinc-500 whitespace-nowrap ml-1">{combo.date}</span>}
+        {combo.date&&vs&&<span className="text-xs text-zinc-500 whitespace-nowrap ml-1">{combo.date}</span>}
         {/* Accordion toggle */}
         <button onClick={()=>setOpen(v=>!v)}
           className={`ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium transition-all
@@ -1761,7 +1761,7 @@ function ComboRow({ combo, vr, assetMap, onToggle, onUrlChange, onFilenameChange
   );
 }
 
-function TrackerTab({ combos, onToggle, onUrlChange, onFilenameChange, validationStore, setValidationStore, validPairs, locked, autoAddToTracker, preHooks, hooks, leads, bodies, ctas, sheetsUrl, syncState, onSyncRow, onSyncAll, buildRow, setStitchQueue, setTab }) {
+function TrackerTab({ combos, onToggle, onSetVideoStatus, onUrlChange, onFilenameChange, validationStore, setValidationStore, validPairs, locked, autoAddToTracker, preHooks, hooks, leads, bodies, ctas, sheetsUrl, syncState, onSyncRow, onSyncAll, buildRow, setStitchQueue, setTab }) {
   const [tagSet,setTagSet]=useState(new Set());
   const [search,setSearch]=useState("");
   const [preHookFilter,setPreHookFilter]=useState("All");
@@ -1824,12 +1824,20 @@ function TrackerTab({ combos, onToggle, onUrlChange, onFilenameChange, validatio
     const matchLead     =leadFilter==="All"||c.leadId===leadFilter;
     const matchBody     =bodyFilter==="All"||c.bodyId===bodyFilter;
     const matchSpeaker  =speakerFilter==="All"||hSpeaker===speakerFilter||lSpeaker===speakerFilter;
-    const matchStatus   =statusFilter==="All"||(statusFilter==="Created"&&c.created)||(statusFilter==="Pending"&&!c.created)
-      ||(statusFilter==="Valid"&&vr?.valid===true)||(statusFilter==="Invalid"&&vr?.valid===false);
+    const vs=c.videoStatus;
+    const matchStatus   =statusFilter==="All"
+      ||(statusFilter==="Approved"&&vs==="approved")
+      ||(statusFilter==="Stitched"&&vs==="stitched")
+      ||(statusFilter==="Unusable"&&vs==="rejected")
+      ||(statusFilter==="Pending"&&!vs)
+      ||(statusFilter==="Valid"&&vr?.valid===true)
+      ||(statusFilter==="Invalid"&&vr?.valid===false);
     return matchTag&&matchSearch&&matchPreHook&&matchHook&&matchLead&&matchBody&&matchSpeaker&&matchStatus;
   });
 
-  const doneCombos=baseCombos.filter(c=>c.created).length;
+  const doneCombos=baseCombos.filter(c=>c.videoStatus==="approved").length;
+  const stitchedCombos=baseCombos.filter(c=>c.videoStatus==="stitched").length;
+  const rejectedCombos=baseCombos.filter(c=>c.videoStatus==="rejected").length;
   const validTotal=validPairs>0?validPairs:baseCombos.length;
 
   return (
@@ -1845,9 +1853,11 @@ function TrackerTab({ combos, onToggle, onUrlChange, onFilenameChange, validatio
           <div className="text-sm text-zinc-400">
             {locked?"Valid combos in tracker:":"After validation:"} <span className="text-emerald-400 font-bold">{baseCombos.length} valid</span>
           </div>
-          <div className="text-sm text-zinc-400">
-            Created: <span className="text-amber-400 font-bold">{doneCombos}</span> / <span className="text-white font-bold">{baseCombos.length}</span>
-            {doneCombos>0&&<span className="text-zinc-500 ml-1">({Math.round((doneCombos/validTotal)*100)}%)</span>}
+          <div className="text-sm text-zinc-400 flex flex-wrap gap-x-3 gap-y-1">
+            <span>✅ Approved: <span className="text-emerald-400 font-bold">{doneCombos}</span></span>
+            {stitchedCombos>0&&<span>🎬 Pending review: <span className="text-amber-400 font-bold">{stitchedCombos}</span></span>}
+            {rejectedCombos>0&&<span>❌ Unusable: <span className="text-red-400 font-bold">{rejectedCombos}</span></span>}
+            <span className="text-zinc-600">/ {baseCombos.length} total</span>
           </div>
         </div>
       )}
@@ -1877,7 +1887,7 @@ function TrackerTab({ combos, onToggle, onUrlChange, onFilenameChange, validatio
           <span className="text-xs text-zinc-500">Status:</span>
           <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}
             className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-amber-500">
-            {["All","Created","Pending","Valid","Invalid"].map(o=><option key={o}>{o}</option>)}
+            {["All","Approved","Stitched","Unusable","Pending","Valid","Invalid"].map(o=><option key={o}>{o}</option>)}
           </select>
         </div>
       </div>
@@ -1917,7 +1927,7 @@ function TrackerTab({ combos, onToggle, onUrlChange, onFilenameChange, validatio
           const vr=validationStore[combo.key]||validationStore[`${combo.preHookId||"none"}+${combo.hookId}+${combo.leadId}+none+none+none`];
           return (
             <ComboRow key={combo.key} combo={combo} vr={vr} assetMap={assetMap}
-              onToggle={onToggle} onUrlChange={onUrlChange} onFilenameChange={onFilenameChange}
+              onToggle={onToggle} onSetVideoStatus={onSetVideoStatus} onUrlChange={onUrlChange} onFilenameChange={onFilenameChange}
               sheetsUrl={sheetsUrl} syncStatus={syncState[combo.key]}
               onSync={()=>onSyncRow(combo,vr)}
               selected={selectedTrackerKeys.has(combo.key)}
@@ -2875,7 +2885,7 @@ export default function App() {
       const autoFilename=`${ph?`${ph.id}${phDesc}`:""}${h.id}${hDesc}${l.id}${t?`${t.id}${tDesc}`:""}${b?b.id:""}${c?c.id:""}`;
       all.push({key,preHookId:ph?.id||null,hookId:h.id,transitionId:t?.id||null,leadId:l.id,bodyId:b?.id||null,ctaId:c?.id||null,
         hookTag:h.tag,leadTag:l.tag,preHookTag:ph?.tag||null,hookDescriptor:h.descriptor||"",
-        created:comboData[key]?.created||false,date:comboData[key]?.date||"",url:comboData[key]?.url||"",
+        created:comboData[key]?.created||false,videoStatus:comboData[key]?.videoStatus||null,date:comboData[key]?.date||"",url:comboData[key]?.url||"",
         autoFilename,filename:comboData[key]?.filename||""});
     }
     return all;
@@ -2893,9 +2903,16 @@ export default function App() {
   const total=combos.length;
   const ringTotal=validationResults.length>0?validPairs:total;
 
-  const toggleCombo=key=>setComboData(prev=>({...prev,[key]:{...prev[key],created:!prev[key]?.created,
-    date:!prev[key]?.created?new Date().toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}):(prev[key]?.date||""),
-    url:prev[key]?.url||""}}));
+  // Called by Stitcher when a combo finishes rendering — marks as "stitched, pending review"
+  const toggleCombo=key=>setComboData(prev=>({...prev,[key]:{
+    ...prev[key],
+    created:true,
+    videoStatus:"stitched",
+    date:new Date().toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}),
+    url:prev[key]?.url||""
+  }}));
+  // Called from Tracker to set approved / rejected / back to stitched
+  const setVideoStatus=(key,status)=>setComboData(prev=>({...prev,[key]:{...prev[key],videoStatus:status,created:status==="approved"}}));
   const updateUrl=(key,url)=>setComboData(prev=>({...prev,[key]:{...prev[key],url}}));
   const updateFilename=(key,filename)=>setComboData(prev=>({...prev,[key]:{...prev[key],filename}}));
 
@@ -3144,7 +3161,7 @@ export default function App() {
         <div style={{display:tab==="validate"?"block":"none"}}>
           <ValidateTab {...{preHooks,hooks,transitions,leads,bodies,ctas,speakers,validationStore,setValidationStore,locked,setLocked,autoAddToTracker,setAutoAddToTracker,validationMode,setValidationMode,anthropicKey,setTab}}/>
         </div>
-        {tab==="tracker" &&<TrackerTab combos={combos} onToggle={toggleCombo} onUrlChange={updateUrl} onFilenameChange={updateFilename} validationStore={validationStore} setValidationStore={setValidationStore} validPairs={validPairs} locked={locked} autoAddToTracker={autoAddToTracker} preHooks={preHooks} hooks={hooks} leads={leads} bodies={bodies} ctas={ctas} sheetsUrl={zapierUrl||sheetyUrl||sheetsUrl} syncState={syncState} onSyncRow={syncRow} onSyncAll={syncAll} buildRow={buildRow} setStitchQueue={setStitchQueue} setTab={setTab}/>}
+        {tab==="tracker" &&<TrackerTab combos={combos} onToggle={toggleCombo} onSetVideoStatus={setVideoStatus} onUrlChange={updateUrl} onFilenameChange={updateFilename} validationStore={validationStore} setValidationStore={setValidationStore} validPairs={validPairs} locked={locked} autoAddToTracker={autoAddToTracker} preHooks={preHooks} hooks={hooks} leads={leads} bodies={bodies} ctas={ctas} sheetsUrl={zapierUrl||sheetyUrl||sheetsUrl} syncState={syncState} onSyncRow={syncRow} onSyncAll={syncAll} buildRow={buildRow} setStitchQueue={setStitchQueue} setTab={setTab}/>}
         {tab==="stitch"  &&<StitchTab combos={combos} validationStore={validationStore} preHooks={preHooks} hooks={hooks} transitions={transitions} leads={leads} bodies={bodies} ctas={ctas} onMarkCreated={toggleCombo} stitchQueue={stitchQueue} setStitchQueue={setStitchQueue}/>}
         {tab==="settings"&&<SettingsTab sheetsUrl={sheetsUrl} setSheetsUrl={setSheetsUrl} sheetyUrl={sheetyUrl} setSheetyUrl={setSheetyUrl} sheetyToken={sheetyToken} setSheetyToken={setSheetyToken} zapierUrl={zapierUrl} setZapierUrl={setZapierUrl}/>}
       </div>
