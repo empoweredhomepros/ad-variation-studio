@@ -1481,7 +1481,7 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
                   🗑 Delete
                 </button>
                 <button
-                  onClick={()=>{ setValidationStore(prev=>{ const n={...prev}; selectedResultKeys.forEach(k=>{ if(n[k]) n[k]={...n[k],valid:true,manual:true,reviewed:true,reason:n[k].manual?n[k].reason:`Original AI verdict: "${n[k].reason}" — manually approved & moved to tracker.`}; }); return n; }); setSelectedResultKeys(new Set()); setLocked(false); setTab("tracker"); }}
+                  onClick={()=>{ setValidationStore(prev=>{ const n={...prev}; selectedResultKeys.forEach(k=>{ if(n[k]) n[k]={...n[k],valid:true,manual:true,reviewed:true,reason:n[k].manual?n[k].reason:`Original AI verdict: "${n[k].reason}" — manually approved & moved to tracker.`}; }); return n; }); setSelectedResultKeys(new Set()); }}
                   className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 border border-amber-500 text-black text-xs font-bold rounded-lg transition-colors">
                   ➡ Move to Tracker
                 </button>
@@ -2787,24 +2787,27 @@ export default function App() {
   const [validationMode,setValidationMode]=useState("grammar");
 
   // Pre-hook and Transition are optional — null means "skip"
+  // Body and CTA fall back to [null] when empty so H+L-only validated combos still appear in Tracker
   const preHookSlots     = useMemo(()=>[null,...preHooks],[preHooks]);
   const transitionSlots  = useMemo(()=>[null,...transitions],[transitions]);
+  const bodySlots        = useMemo(()=>bodies.length>0?bodies:[null],[bodies]);
+  const ctaSlots         = useMemo(()=>ctas.length>0?ctas:[null],[ctas]);
 
   const combos=useMemo(()=>{
     const all=[];
-    for(const ph of preHookSlots) for(const h of hooks) for(const l of leads) for(const t of transitionSlots) for(const b of bodies) for(const c of ctas){
-      const key=`${ph?.id||"none"}+${h.id}+${l.id}+${t?.id||"none"}+${b.id}+${c.id}`;
+    for(const ph of preHookSlots) for(const h of hooks) for(const l of leads) for(const t of transitionSlots) for(const b of bodySlots) for(const c of ctaSlots){
+      const key=`${ph?.id||"none"}+${h.id}+${l.id}+${t?.id||"none"}+${b?.id||"none"}+${c?.id||"none"}`;
       const phDesc=ph?.descriptor?`(${ph.descriptor.replace(/\s+/g,"-")})`:"";
       const hDesc=h.descriptor?`(${h.descriptor.replace(/\s+/g,"-")})`:"";
       const tDesc=t?.descriptor?`(${t.descriptor.replace(/\s+/g,"-")})`:"";
-      const autoFilename=`${ph?`${ph.id}${phDesc}`:""}${h.id}${hDesc}${l.id}${t?`${t.id}${tDesc}`:""}${b.id}${c.id}`;
-      all.push({key,preHookId:ph?.id||null,hookId:h.id,transitionId:t?.id||null,leadId:l.id,bodyId:b.id,ctaId:c.id,
+      const autoFilename=`${ph?`${ph.id}${phDesc}`:""}${h.id}${hDesc}${l.id}${t?`${t.id}${tDesc}`:""}${b?b.id:""}${c?c.id:""}`;
+      all.push({key,preHookId:ph?.id||null,hookId:h.id,transitionId:t?.id||null,leadId:l.id,bodyId:b?.id||null,ctaId:c?.id||null,
         hookTag:h.tag,leadTag:l.tag,preHookTag:ph?.tag||null,hookDescriptor:h.descriptor||"",
         created:comboData[key]?.created||false,date:comboData[key]?.date||"",url:comboData[key]?.url||"",
         autoFilename,filename:comboData[key]?.filename||""});
     }
     return all;
-  },[preHookSlots,hooks,leads,bodies,ctas,comboData]);
+  },[preHookSlots,hooks,leads,transitionSlots,bodySlots,ctaSlots,comboData]);
 
   // Only count results that belong to the current combo scope (exact key or hook+lead-only fallback)
   const comboKeySet=useMemo(()=>new Set(combos.map(c=>c.key)),[combos]);
