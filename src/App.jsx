@@ -964,7 +964,7 @@ function LockModal({ validCount, invalidCount, manualValidCount, onConfirm, onCa
   );
 }
 
-function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,validationStore,setValidationStore,locked,setLocked,validationMode,setValidationMode,anthropicKey,setTab }) {
+function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,validationStore,setValidationStore,locked,setLocked,autoAddToTracker,setAutoAddToTracker,validationMode,setValidationMode,anthropicKey,setTab }) {
   const [scopeTagSet,setScopeTagSet]=useState(new Set());
   const [preHookMode,setPreHookMode]=useState("none");
   const [preHookTagSet,setPreHookTagSet]=useState(new Set()); // independent filter
@@ -1377,14 +1377,30 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
             </div>
           )}
 
-          {/* Lock button — appears when there are results and not currently running */}
-          {Object.keys(validationStore).length>0&&!running&&!locked&&(
-            <div className="pt-2 border-t border-zinc-800">
-              <button onClick={()=>setShowLockModal(true)}
-                className="flex items-center gap-2 px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-amber-500/40 text-zinc-300 hover:text-white text-sm font-medium rounded-lg transition-all">
-                🔒 Lock Results & Update Tracker
-              </button>
-              <p className="text-zinc-600 text-xs mt-1.5">Locking hides invalid combos from the Tracker. You can unlock anytime.</p>
+          {/* Auto-add toggle + Lock button */}
+          {Object.keys(validationStore).length>0&&!running&&(
+            <div className="pt-2 border-t border-zinc-800 flex flex-col gap-2">
+              {/* Auto-add toggle */}
+              <label className="flex items-center gap-3 cursor-pointer select-none group">
+                <div onClick={()=>setAutoAddToTracker(v=>!v)}
+                  className={`relative w-10 h-5 rounded-full transition-colors ${autoAddToTracker?"bg-amber-500":"bg-zinc-700"}`}>
+                  <div className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${autoAddToTracker?"translate-x-5":""}`}/>
+                </div>
+                <span className="text-xs text-zinc-400 group-hover:text-zinc-300 transition-colors">
+                  Auto-add AI-validated results to Tracker
+                  {autoAddToTracker
+                    ? <span className="ml-1 text-amber-400">(ON — all ✅ AI results appear in Tracker)</span>
+                    : <span className="ml-1 text-zinc-600">(OFF — only manually approved results appear)</span>
+                  }
+                </span>
+              </label>
+              {!locked&&(
+                <button onClick={()=>setShowLockModal(true)}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-amber-500/40 text-zinc-300 hover:text-white text-sm font-medium rounded-lg transition-all w-fit">
+                  🔒 Lock Results & Update Tracker
+                </button>
+              )}
+              {!locked&&<p className="text-zinc-600 text-xs">Locking hides invalid combos from the Tracker. You can unlock anytime.</p>}
             </div>
           )}
         </div>
@@ -1698,7 +1714,7 @@ function ComboRow({ combo, vr, assetMap, onToggle, onUrlChange, onFilenameChange
   );
 }
 
-function TrackerTab({ combos, onToggle, onUrlChange, onFilenameChange, validationStore, setValidationStore, validPairs, locked, preHooks, hooks, leads, bodies, ctas, sheetsUrl, syncState, onSyncRow, onSyncAll, buildRow, setStitchQueue, setTab }) {
+function TrackerTab({ combos, onToggle, onUrlChange, onFilenameChange, validationStore, setValidationStore, validPairs, locked, autoAddToTracker, preHooks, hooks, leads, bodies, ctas, sheetsUrl, syncState, onSyncRow, onSyncAll, buildRow, setStitchQueue, setTab }) {
   const [tagSet,setTagSet]=useState(new Set());
   const [search,setSearch]=useState("");
   const [preHookFilter,setPreHookFilter]=useState("All");
@@ -1717,17 +1733,23 @@ function TrackerTab({ combos, onToggle, onUrlChange, onFilenameChange, validatio
     return m;
   },[preHooks,hooks,leads,bodies,ctas]);
 
-  // Always show only validated+approved (AI ✅ or manually overridden ✅) combos
-  // Exact match first; fallback to hook+lead-only key but deduplicated so one row per pair
+  // Show combos in tracker:
+  // - autoAddToTracker=true: everything the AI marked valid
+  // - autoAddToTracker=false (default): only combos explicitly approved by user (manual:true)
   const baseCombos=useMemo(()=>{
     if(Object.keys(validationStore).length===0) return [];
     return combos.filter(c=>{
       const fullKey=`${c.preHookId||"none"}+${c.hookId}+${c.leadId}+${c.transitionId||"none"}+${c.bodyId||"none"}+${c.ctaId||"none"}`;
       const hlKey  =`${c.preHookId||"none"}+${c.hookId}+${c.leadId}+none+none+none`;
-      // Exact key match OR HL-fallback (all body/CTA combos for a valid H+L pair are included)
-      return validationStore[fullKey]?.valid===true || validationStore[hlKey]?.valid===true;
+      const vFull=validationStore[fullKey];
+      const vHl  =validationStore[hlKey];
+      const vr   =vFull||vHl;
+      if(!vr||vr.valid!==true) return false;
+      // When auto-add is off, only show combos the user explicitly approved
+      if(!autoAddToTracker && !vr.manual) return false;
+      return true;
     });
-  },[combos,validationStore]);
+  },[combos,validationStore,autoAddToTracker]);
 
   const uniquePreHooks=["All","(none)",...new Set(baseCombos.map(c=>c.preHookId).filter(Boolean))];
   const uniqueHooks   =["All",...new Set(baseCombos.map(c=>c.hookId))];
@@ -2785,6 +2807,7 @@ export default function App() {
   const [validationStore,setValidationStore]=useState({});
   const [locked,setLocked]=useState(false);
   const [validationMode,setValidationMode]=useState("grammar");
+  const [autoAddToTracker,setAutoAddToTracker]=useState(false);
 
   // Pre-hook and Transition are optional — null means "skip"
   // Body and CTA fall back to [null] when empty so H+L-only validated combos still appear in Tracker
@@ -2857,6 +2880,7 @@ export default function App() {
       setComboData(d.comboData||{});
       setValidationStore(d.validationStore||{});
       setLocked(d.locked||false);
+      setAutoAddToTracker(d.autoAddToTracker||false);
       setValidationMode(d.validationMode||"grammar");
       setSheetsUrl(d.sheetsUrl||"");
       setSheetyUrl(d.sheetyUrl||"");
@@ -2870,8 +2894,8 @@ export default function App() {
   // ── Auto-save whenever state changes ─────────────────────────────────────
   useEffect(()=>{
     if(!activeClientId||isMounting.current) return;
-    saveClientData(activeClientId,{preHooks,hooks,transitions,leads,bodies,ctas,speakers,comboData,validationStore,locked,validationMode,sheetsUrl,sheetyUrl,sheetyToken,zapierUrl});
-  },[preHooks,hooks,transitions,leads,bodies,ctas,speakers,comboData,validationStore,locked,validationMode,sheetsUrl,sheetyUrl,sheetyToken,zapierUrl]);
+    saveClientData(activeClientId,{preHooks,hooks,transitions,leads,bodies,ctas,speakers,comboData,validationStore,locked,autoAddToTracker,validationMode,sheetsUrl,sheetyUrl,sheetyToken,zapierUrl});
+  },[preHooks,hooks,transitions,leads,bodies,ctas,speakers,comboData,validationStore,locked,autoAddToTracker,validationMode,sheetsUrl,sheetyUrl,sheetyToken,zapierUrl]);
 
   const assetById=useMemo(()=>{
     const m={};
@@ -3069,9 +3093,9 @@ export default function App() {
         {tab==="library" &&<LibraryTab {...{preHooks,setPreHooks,hooks,transitions,setTransitions,leads,bodies,ctas,setHooks,setLeads,setBodies,setCtas,validationStore,speakers,setSpeakers}}/>}
         {/* ValidateTab stays mounted to preserve scope selections and results across tab switches */}
         <div style={{display:tab==="validate"?"block":"none"}}>
-          <ValidateTab {...{preHooks,hooks,transitions,leads,bodies,ctas,speakers,validationStore,setValidationStore,locked,setLocked,validationMode,setValidationMode,anthropicKey,setTab}}/>
+          <ValidateTab {...{preHooks,hooks,transitions,leads,bodies,ctas,speakers,validationStore,setValidationStore,locked,setLocked,autoAddToTracker,setAutoAddToTracker,validationMode,setValidationMode,anthropicKey,setTab}}/>
         </div>
-        {tab==="tracker" &&<TrackerTab combos={combos} onToggle={toggleCombo} onUrlChange={updateUrl} onFilenameChange={updateFilename} validationStore={validationStore} setValidationStore={setValidationStore} validPairs={validPairs} locked={locked} preHooks={preHooks} hooks={hooks} leads={leads} bodies={bodies} ctas={ctas} sheetsUrl={zapierUrl||sheetyUrl||sheetsUrl} syncState={syncState} onSyncRow={syncRow} onSyncAll={syncAll} buildRow={buildRow} setStitchQueue={setStitchQueue} setTab={setTab}/>}
+        {tab==="tracker" &&<TrackerTab combos={combos} onToggle={toggleCombo} onUrlChange={updateUrl} onFilenameChange={updateFilename} validationStore={validationStore} setValidationStore={setValidationStore} validPairs={validPairs} locked={locked} autoAddToTracker={autoAddToTracker} preHooks={preHooks} hooks={hooks} leads={leads} bodies={bodies} ctas={ctas} sheetsUrl={zapierUrl||sheetyUrl||sheetsUrl} syncState={syncState} onSyncRow={syncRow} onSyncAll={syncAll} buildRow={buildRow} setStitchQueue={setStitchQueue} setTab={setTab}/>}
         {tab==="stitch"  &&<StitchTab combos={combos} validationStore={validationStore} preHooks={preHooks} hooks={hooks} transitions={transitions} leads={leads} bodies={bodies} ctas={ctas} onMarkCreated={toggleCombo} stitchQueue={stitchQueue} setStitchQueue={setStitchQueue}/>}
         {tab==="settings"&&<SettingsTab sheetsUrl={sheetsUrl} setSheetsUrl={setSheetsUrl} sheetyUrl={sheetyUrl} setSheetyUrl={setSheetyUrl} sheetyToken={sheetyToken} setSheetyToken={setSheetyToken} zapierUrl={zapierUrl} setZapierUrl={setZapierUrl}/>}
       </div>
