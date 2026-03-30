@@ -1004,13 +1004,15 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
 
   const preHooksToRun=useMemo(()=>{
     if(preHookMode==="none") return [null];
-    if(preHookMode==="all")  return visiblePreHooks;
-    return selectedPreHooks ? visiblePreHooks.filter(ph=>selectedPreHooks.has(ph.id)) : visiblePreHooks;
+    if(preHookMode==="all")  return visiblePreHooks.length>0 ? visiblePreHooks : [null]; // fall back to skip if none in library
+    const filtered=visiblePreHooks.filter(ph=>selectedPreHooks?.has(ph.id));
+    return filtered.length>0 ? filtered : [null];
   },[preHookMode,visiblePreHooks,selectedPreHooks]);
   const transitionsToRun=useMemo(()=>{
     if(transitionMode==="none") return [null];
-    if(transitionMode==="all")  return visibleTransitions;
-    return selectedTransitions ? visibleTransitions.filter(t=>selectedTransitions.has(t.id)) : visibleTransitions;
+    if(transitionMode==="all")  return visibleTransitions.length>0 ? visibleTransitions : [null];
+    const filtered=visibleTransitions.filter(t=>selectedTransitions?.has(t.id));
+    return filtered.length>0 ? filtered : [null];
   },[transitionMode,visibleTransitions,selectedTransitions]);
   const hooksToRun =useMemo(()=>selectedHooks ?visibleHooks.filter(h=>selectedHooks.has(h.id)) :visibleHooks,[visibleHooks,selectedHooks]);
   const leadsToRun =useMemo(()=>selectedLeads ?visibleLeads.filter(l=>selectedLeads.has(l.id)) :visibleLeads,[visibleLeads,selectedLeads]);
@@ -1335,6 +1337,8 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
               {ctaMode!=="none"&&<>{" × "}<span className="text-pink-400 font-bold">{ctasToRun.length}CTA</span></>}
               {" = "}<span className="text-white font-bold">{totalCombos} combos</span>
             </div>
+            {preHookMode!=="none"&&visiblePreHooks.length===0&&<div className="text-xs text-orange-400">⚠ Pre-hooks set to "All" but none exist in library — treating as Skip.</div>}
+            {transitionMode!=="none"&&transitionMode!=="none"&&visibleTransitions.length===0&&<div className="text-xs text-orange-400">⚠ Transitions set to "All" but none exist in library — treating as Skip.</div>}
             {alreadyDone>0&&<div className="text-xs text-zinc-500">
               <span className="text-emerald-400 font-bold">{alreadyDone} already validated</span> · <span className="text-amber-400 font-bold">{newTasks.length} new to check</span>
             </div>}
