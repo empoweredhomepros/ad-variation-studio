@@ -839,8 +839,9 @@ function ResultCard({ result, hookText, leadText, bodyText, ctaText, onOverride,
         </div>
 
         <Tag tag={result.hookTag}/>
-        {isManual&&<span className="text-xs bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1.5 py-0.5 rounded-full shrink-0">Manual</span>}
-        {isReviewed&&<span className="text-xs bg-teal-500/20 text-teal-400 border border-teal-500/30 px-1.5 py-0.5 rounded-full shrink-0">✓ Reviewed</span>}
+        {isManual&&result.valid&&<span className="text-xs bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1.5 py-0.5 rounded-full shrink-0">➡ In Tracker</span>}
+        {isManual&&!result.valid&&<span className="text-xs bg-zinc-700/40 text-zinc-400 border border-zinc-600/30 px-1.5 py-0.5 rounded-full shrink-0">Manual</span>}
+        {isReviewed&&!isManual&&<span className="text-xs bg-teal-500/20 text-teal-400 border border-teal-500/30 px-1.5 py-0.5 rounded-full shrink-0">✓ Reviewed</span>}
 
         {/* Reason */}
         <p className="text-zinc-400 text-xs leading-relaxed flex-1 min-w-0">{result.reason}</p>
@@ -1090,9 +1091,11 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
   const results=Object.values(validationStore).filter(r=>scopeKeys.has(r.key));
   const allResults=Object.values(validationStore); // used for the results list display
   const aiValidCount    =results.filter(r=>r.valid===true&&!r.manual).length;
-  const manualValidCount=results.filter(r=>r.valid===true&&r.manual).length;
+  const inTrackerCount  =results.filter(r=>r.valid===true&&r.manual).length;
+  const manualValidCount=inTrackerCount;
   const invalidCount    =results.filter(r=>r.valid===false).length;
   const manualCount     =results.filter(r=>r.manual).length;
+  const remainingCount  =aiValidCount; // valid AI results not yet moved to tracker
 
   const hookMap=useMemo(()=>Object.fromEntries(hooks.map(h=>[h.id,h.text])),[hooks]);
   const leadMap=useMemo(()=>Object.fromEntries(leads.map(l=>[l.id,l.text])),[leads]);
@@ -1119,7 +1122,7 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
     const lSpk=leadSpeakerMap[r.leadId]||"";
     const matchSpeaker=resSpeakerFilter==="All"||hSpk===resSpeakerFilter||lSpk===resSpeakerFilter;
     const matchSearch=resSearch===""||r.hookId.toLowerCase().includes(resSearch.toLowerCase())||r.leadId.toLowerCase().includes(resSearch.toLowerCase());
-    const matchValid=validFilter==="All"||(validFilter==="Valid"&&r.valid===true)||(validFilter==="Invalid"&&r.valid===false)||(validFilter==="Manual"&&r.manual)||(validFilter==="Unreviewed"&&!r.reviewed);
+    const matchValid=validFilter==="All"||(validFilter==="Valid"&&r.valid===true&&!r.manual)||(validFilter==="Invalid"&&r.valid===false)||(validFilter==="InTracker"&&r.manual&&r.valid)||(validFilter==="Unreviewed"&&!r.reviewed);
     return matchTag&&matchSpeaker&&matchSearch&&matchValid;
   });
 
@@ -1360,11 +1363,13 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
               </button>
             )}
             {results.length>0&&!running&&(
-              <div className="flex gap-2 text-sm flex-wrap">
-                <span className="text-emerald-400 font-bold">✅ {aiValidCount}</span>
+              <div className="flex gap-2 text-sm flex-wrap items-center">
+                <span className="text-emerald-400 font-bold">✅ {aiValidCount+inTrackerCount} valid</span>
+                {inTrackerCount>0&&<><span className="text-zinc-600">·</span><span className="text-amber-400 font-bold">➡ {inTrackerCount} in Tracker</span></>}
+                {inTrackerCount>0&&<><span className="text-zinc-600">·</span><span className="text-zinc-400">{remainingCount} remaining</span></>}
+                <span className="text-zinc-600">·</span>
                 <span className="text-red-400 font-bold">❌ {invalidCount}</span>
-                {errorTasks.length>0&&<span className="text-orange-400 font-bold">⚠️ {errorTasks.length} errors</span>}
-                {manualCount>0&&<span className="text-amber-400 font-bold">✏️ {manualCount} manual</span>}
+                {errorTasks.length>0&&<><span className="text-zinc-600">·</span><span className="text-orange-400 font-bold">⚠️ {errorTasks.length} errors</span></>}
               </div>
             )}
           </div>
@@ -1430,13 +1435,19 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
             </select>
             {/* Verdict filter pills */}
             <div className="flex gap-1 ml-auto flex-wrap">
-              {["All","Valid","Invalid","Manual","Unreviewed"].map(v=>(
-                <button key={v} onClick={()=>setValidFilter(v)}
+              {[
+                {id:"All",      label:"All"},
+                {id:"Valid",    label:"✅ Valid"},
+                {id:"Invalid",  label:"❌ Invalid"},
+                {id:"InTracker",label:"➡ In Tracker"},
+                {id:"Unreviewed",label:"👁 Unreviewed"},
+              ].map(({id,label})=>(
+                <button key={id} onClick={()=>setValidFilter(id)}
                   className={`px-2.5 py-1 text-xs rounded-full font-medium transition-colors
-                    ${validFilter===v
-                      ?v==="Valid"?"bg-emerald-500 text-black":v==="Invalid"?"bg-red-500 text-white":v==="Manual"?"bg-amber-500 text-black":v==="Unreviewed"?"bg-teal-500 text-black":"bg-zinc-600 text-white"
+                    ${validFilter===id
+                      ?id==="Valid"?"bg-emerald-500 text-black":id==="Invalid"?"bg-red-500 text-white":id==="InTracker"?"bg-amber-500 text-black":id==="Unreviewed"?"bg-teal-500 text-black":"bg-zinc-600 text-white"
                       :"bg-zinc-800 text-zinc-400 hover:text-white"}`}>
-                  {v==="Valid"?"✅ Valid":v==="Invalid"?"❌ Invalid":v==="Manual"?"✏️ Manual":v==="Unreviewed"?"👁 Unreviewed":"All"}
+                  {label}
                 </button>
               ))}
             </div>
