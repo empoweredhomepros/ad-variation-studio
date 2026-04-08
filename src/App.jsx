@@ -2503,9 +2503,9 @@ function StitchTab({ combos, validationStore, preHooks, hooks, transitions, lead
     for (let i = 0; i < fileNames.length; i++) {
       setStatusLabel(`Normalizing segment ${i+1} of ${fileNames.length}…`);
       const normName = `norm_${safe}_${i}.mp4`;
-      let r = await ffmpeg.exec(["-i", fileNames[i], "-vf", vf, "-c:v", "libx264", "-preset", "ultrafast", "-map", "0:v:0", "-map", "0:a:0", "-c:a", "aac", "-ar", "44100", "-ac", "2", normName]);
+      let r = await ffmpeg.exec(["-i", fileNames[i], "-vf", vf, "-c:v", "libx264", "-preset", "ultrafast", "-map", "0:v:0", "-map", "0:a:0", "-c:a", "aac", "-ar", "44100", "-ac", "2", "-af", "aresample=44100,aformat=channel_layouts=stereo", normName]);
       if (r !== 0) {
-        r = await ffmpeg.exec(["-i", fileNames[i], "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-vf", vf, "-c:v", "libx264", "-preset", "ultrafast", "-map", "0:v:0", "-map", "1:a", "-c:a", "aac", "-ar", "44100", "-ac", "2", "-shortest", normName]);
+        r = await ffmpeg.exec(["-i", fileNames[i], "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-vf", vf, "-c:v", "libx264", "-preset", "ultrafast", "-map", "0:v:0", "-map", "1:a", "-c:a", "aac", "-ar", "44100", "-ac", "2", "-af", "aresample=44100,aformat=channel_layouts=stereo", "-shortest", normName]);
         if (r !== 0) throw new Error(`Could not normalize segment ${i + 1}.\n${logs.slice(-5).join("\n")}`);
       }
       normNames.push(normName);
