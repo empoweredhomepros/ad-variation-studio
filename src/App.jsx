@@ -685,7 +685,9 @@ function LibraryTab({ preHooks,setPreHooks,hooks,transitions,setTransitions,lead
         if (!resp.ok) throw new Error(`Download failed: HTTP ${resp.status}`);
         const ct = resp.headers.get("content-type") || "";
         if (ct.includes("text/html")) throw new Error(`Drive returned HTML — check sharing settings`);
-        const raw = new Uint8Array(await resp.arrayBuffer());
+        const rawBuffer = await resp.arrayBuffer();
+        if (rawBuffer.byteLength > 45 * 1024 * 1024) throw new Error(`File too large for Supabase free plan (${(rawBuffer.byteLength/1024/1024).toFixed(1)}MB) — upgrade plan or trim clip`);
+        const raw = new Uint8Array(rawBuffer);
 
         // Normalize with FFmpeg
         const rawName = `raw_${asset.id}.mp4`;
