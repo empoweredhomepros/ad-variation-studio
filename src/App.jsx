@@ -40,6 +40,12 @@ const TAG_COLORS = {
 const ALL_TAGS   = ["All","Founder","UGC","AI","VO","Any"];
 const ASSET_TAGS = ["Founder","UGC","AI","VO","Any"];
 
+const fmtDate = iso => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return `${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}-${String(d.getFullYear()).slice(-2)}`;
+};
+
 function Tag({ tag }) {
   const c = TAG_COLORS[tag] || TAG_COLORS["Any"];
   return <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${c.bg} ${c.text} ${c.border}`}>{tag}</span>;
@@ -841,6 +847,8 @@ function ResultCard({ result, hookText, leadText, bodyText, ctaText, onOverride,
         <Tag tag={result.hookTag}/>
         {isManual&&result.valid&&<span className="text-xs bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1.5 py-0.5 rounded-full shrink-0">➡ In Tracker</span>}
         {isManual&&!result.valid&&<span className="text-xs bg-zinc-700/40 text-zinc-400 border border-zinc-600/30 px-1.5 py-0.5 rounded-full shrink-0">Manual</span>}
+        {result.validatedAt&&<span className="text-xs text-zinc-500 shrink-0" title="Date Validated">📅 {fmtDate(result.validatedAt)}</span>}
+        {result.addedToTrackerAt&&<span className="text-xs text-amber-400/70 shrink-0" title="Date Added to Tracker">🗂 {fmtDate(result.addedToTrackerAt)}</span>}
         {isReviewed&&!isManual&&<span className="text-xs bg-teal-500/20 text-teal-400 border border-teal-500/30 px-1.5 py-0.5 rounded-full shrink-0">✓ Reviewed</span>}
 
         {/* Reason */}
@@ -1044,7 +1052,7 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
       const baseEntry={key,preHookId:ph?.id||null,hookId:h.id,transitionId:t?.id||null,leadId:l.id,bodyId:b?.id||null,ctaId:c?.id||null,hookTag:h.tag,leadTag:l.tag,mode:validationMode};
       try {
         const res=await callValidate(h,l,t,b,c,validationMode,anthropicKey);
-        setValidationStore(prev=>({...prev,[key]:{...baseEntry,valid:res.valid,reason:res.reason,manual:false}}));
+        setValidationStore(prev=>({...prev,[key]:{...baseEntry,valid:res.valid,reason:res.reason,manual:false,validatedAt:new Date().toISOString()}}));
       } catch(err) {
         setValidationStore(prev=>({...prev,[key]:{...baseEntry,valid:null,reason:`Error: ${err?.message||"Unknown error"}`,manual:false}}));
       }
@@ -1077,6 +1085,7 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
       const existing=prev[key]; if(!existing) return prev;
       const alreadyCorrect=existing.valid===newValid; if(alreadyCorrect) return prev;
       return {...prev,[key]:{...existing,valid:newValid,manual:true,reviewed:true,
+        addedToTrackerAt: newValid ? (existing.addedToTrackerAt||new Date().toISOString()) : null,
         reason:existing.manual?existing.reason:`Original AI verdict: "${existing.reason}" — manually overridden.`}};
     });
     if (newValid && validFilter==="Invalid") setValidFilter("All");
@@ -1663,6 +1672,9 @@ function ComboRow({ combo, vr, assetMap, onToggle, onSetVideoStatus, onUrlChange
         <Tag tag={combo.hookTag}/>
         <FilenameField value={combo.filename||combo.autoFilename} onChange={v=>onFilenameChange(combo.key,v)}/>
         {combo.date&&vs&&<span className="text-xs text-zinc-500 whitespace-nowrap ml-1">{combo.date}</span>}
+        {vr?.validatedAt&&<span className="text-xs text-zinc-500 whitespace-nowrap" title="Date Validated">📅 {fmtDate(vr.validatedAt)}</span>}
+        {vr?.manual&&vr?.valid&&<span className="text-xs bg-amber-500/15 text-amber-400 border border-amber-500/25 px-1.5 py-0.5 rounded-full whitespace-nowrap">In Tracker</span>}
+        {vr?.addedToTrackerAt&&<span className="text-xs text-amber-400/70 whitespace-nowrap" title="Date Added to Tracker">🗂 {fmtDate(vr.addedToTrackerAt)}</span>}
         {/* Accordion toggle */}
         <button onClick={()=>setOpen(v=>!v)}
           className={`ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium transition-all
