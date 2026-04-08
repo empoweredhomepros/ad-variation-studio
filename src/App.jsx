@@ -680,12 +680,16 @@ function LibraryTab({ preHooks,setPreHooks,hooks,transitions,setTransitions,lead
       const asset = toUpload[i];
       setUploadState(s => ({ ...s, done: i, current: asset.id }));
       try {
-        // Download raw clip
-        const resp = await fetch(`/api/proxy?url=${encodeURIComponent(asset.driveUrl)}`);
-        if (!resp.ok) throw new Error(`Download failed: HTTP ${resp.status}`);
+        // Download raw clip (up to 3 attempts)
+        let resp, rawBuffer;
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          resp = await fetch(`/api/proxy?url=${encodeURIComponent(asset.driveUrl)}`);
+          if (resp.ok) { rawBuffer = await resp.arrayBuffer(); break; }
+          if (attempt === 3) throw new Error(`Download failed after 3 attempts: HTTP ${resp.status}`);
+          await new Promise(r => setTimeout(r, 2000 * attempt));
+        }
         const ct = resp.headers.get("content-type") || "";
         if (ct.includes("text/html")) throw new Error(`Drive returned HTML — check sharing settings`);
-        const rawBuffer = await resp.arrayBuffer();
         if (rawBuffer.byteLength > 45 * 1024 * 1024) throw new Error(`File too large for Supabase free plan (${(rawBuffer.byteLength/1024/1024).toFixed(1)}MB) — upgrade plan or trim clip`);
         const raw = new Uint8Array(rawBuffer);
 
