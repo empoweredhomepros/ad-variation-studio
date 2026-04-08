@@ -672,7 +672,7 @@ function LibraryTab({ preHooks,setPreHooks,hooks,transitions,setTransitions,lead
     setUploadState({ running: true, total: toUpload.length, done: 0, current: "", errors: [] });
 
     const vf = "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,fps=30,format=yuv420p";
-    const af = "aresample=44100,aformat=channel_layouts=stereo";
+    const af = "aresample=44100,aformat=channel_layouts=mono,pan=stereo|c0=c0|c1=c0";
     let ffmpeg;
     try { ffmpeg = await ensureFFmpeg(); } catch(e) { setUploadState(s=>({...s,running:false,errors:[`FFmpeg failed to load: ${e.message}`]})); return; }
 
@@ -2537,42 +2537,50 @@ function StitchTab({ combos, validationStore, preHooks, hooks, transitions, lead
     // Fetch / write segment files
     setStatusLabel("Fetching clips & writing segment files…");
     const fileNames = [];
+    const fromStorage = []; // true = already normalized at upload time
     for (const slot of slots) {
       const fname = `seg_${safe}_${slot.id}.mp4`;
       const file = uploadedFiles[slot.id];
       const asset = assetMap[slot.id];
       if (file) {
         await ffmpeg.writeFile(fname, await fetchFile(file));
+        fromStorage.push(false);
       } else if (asset?.storagePath) {
         const signedUrl = await getStorageSignedUrl(asset.storagePath);
         const resp = await fetch(signedUrl);
         if (!resp.ok) throw new Error(`Storage fetch failed for ${slot.id}: HTTP ${resp.status}`);
         await ffmpeg.writeFile(fname, new Uint8Array(await resp.arrayBuffer()));
+        fromStorage.push(true); // normalized at upload time — skip re-encoding
       } else if (asset?.driveUrl) {
         const resp = await fetch(`/api/proxy?url=${encodeURIComponent(asset.driveUrl)}`);
         if (!resp.ok) throw new Error(`Failed to download ${slot.id}: HTTP ${resp.status}`);
         const ct = resp.headers.get("content-type") || "";
         if (ct.includes("text/html")) throw new Error(`Drive returned HTML for ${slot.id} — check sharing is set to "Anyone with the link".`);
         await ffmpeg.writeFile(fname, new Uint8Array(await resp.arrayBuffer()));
+        fromStorage.push(false);
       } else {
         throw new Error(`No video source for segment ${slot.id} — add a Drive URL or upload a file.`);
       }
       fileNames.push(fname);
     }
 
-    // Normalize each segment to ensure consistent format before concat
-    setStatusLabel("Normalizing segments…");
+    // Normalize segments that aren't already normalized (storage clips skip this)
     const vf = "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,fps=30,format=yuv420p";
     const normNames = [];
     for (let i = 0; i < fileNames.length; i++) {
-      setStatusLabel(`Normalizing segment ${i+1} of ${fileNames.length}…`);
-      const normName = `norm_${safe}_${i}.mp4`;
-      let r = await ffmpeg.exec(["-i", fileNames[i], "-vf", vf, "-c:v", "libx264", "-preset", "ultrafast", "-map", "0:v:0", "-map", "0:a:0", "-c:a", "aac", "-ar", "44100", "-ac", "2", "-af", "aresample=44100,aformat=channel_layouts=stereo", normName]);
-      if (r !== 0) {
-        r = await ffmpeg.exec(["-i", fileNames[i], "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-vf", vf, "-c:v", "libx264", "-preset", "ultrafast", "-map", "0:v:0", "-map", "1:a", "-c:a", "aac", "-ar", "44100", "-ac", "2", "-af", "aresample=44100,aformat=channel_layouts=stereo", "-shortest", normName]);
-        if (r !== 0) throw new Error(`Could not normalize segment ${i + 1}.\n${logs.slice(-5).join("\n")}`);
+      if (fromStorage[i]) {
+        // Already normalized at upload time — use as-is
+        normNames.push(fileNames[i]);
+      } else {
+        setStatusLabel(`Normalizing segment ${i+1} of ${fileNames.length}…`);
+        const normName = `norm_${safe}_${i}.mp4`;
+        let r = await ffmpeg.exec(["-i", fileNames[i], "-vf", vf, "-c:v", "libx264", "-preset", "ultrafast", "-map", "0:v:0", "-map", "0:a:0", "-c:a", "aac", "-ar", "44100", "-ac", "2", "-af", "aresample=44100,aformat=channel_layouts=mono,pan=stereo|c0=c0|c1=c0", normName]);
+        if (r !== 0) {
+          r = await ffmpeg.exec(["-i", fileNames[i], "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-vf", vf, "-c:v", "libx264", "-preset", "ultrafast", "-map", "0:v:0", "-map", "1:a", "-c:a", "aac", "-ar", "44100", "-ac", "2", "-af", "aresample=44100,aformat=channel_layouts=mono,pan=stereo|c0=c0|c1=c0", "-shortest", normName]);
+          if (r !== 0) throw new Error(`Could not normalize segment ${i + 1}.\n${logs.slice(-5).join("\n")}`);
+        }
+        normNames.push(normName);
       }
-      normNames.push(normName);
     }
 
     // Concat normalized segments
