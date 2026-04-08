@@ -594,6 +594,7 @@ function LibraryTab({ preHooks,setPreHooks,hooks,transitions,setTransitions,lead
   const [speakerFilter,setSpeakerFilter]=useState("All");
   const [showImport,setShowImport]=useState(false);
   const [selectedIds,setSelectedIds]=useState(new Set());
+  const [uploadState,setUploadState]=useState(null); // null | {running,total,done,current,errors[]}
 
   const toggleSelect=(key,val)=>setSelectedIds(prev=>{ const n=new Set(prev); val?n.add(key):n.delete(key); return n; });
   const toggleSelectAll=(label,items)=>{
@@ -644,6 +645,30 @@ function LibraryTab({ preHooks,setPreHooks,hooks,transitions,setTransitions,lead
     if(buckets.ctas?.length)         setCtas(prev=>[...prev,...buckets.ctas]);
   };
 
+  const handleUploadAllToStorage = async () => {
+    const clientId = localStorage.getItem("avs_active_client") || "default";
+    if (!getSupabase()) { alert("Connect Supabase in Admin settings first."); return; }
+    const toUpload = [];
+    sections.forEach(({ label, items }) => {
+      items.forEach(item => { if (item.driveUrl && !item.storagePath) toUpload.push({ ...item, _label: label }); });
+    });
+    if (!toUpload.length) { alert("All clips with Drive URLs are already in storage."); return; }
+    setUploadState({ running: true, total: toUpload.length, done: 0, current: "", errors: [] });
+    for (let i = 0; i < toUpload.length; i++) {
+      const asset = toUpload[i];
+      setUploadState(s => ({ ...s, done: i, current: asset.id }));
+      try {
+        const path = await uploadClipToStorage(clientId, asset.id, asset.driveUrl);
+        sections.forEach(({ label, setter }) => {
+          if (label === asset._label) setter(prev => prev.map(a => a.id === asset.id ? { ...a, storagePath: path } : a));
+        });
+      } catch (err) {
+        setUploadState(s => ({ ...s, errors: [...s.errors, `${asset.id}: ${err.message}`] }));
+      }
+    }
+    setUploadState(s => ({ ...s, running: false, done: s.total, current: "" }));
+  };
+
   return (
     <div>
       {showImport&&<BulkImportModal onClose={()=>setShowImport(false)} speakers={speakers} onImport={handleImport}/>}
@@ -655,10 +680,38 @@ function LibraryTab({ preHooks,setPreHooks,hooks,transitions,setTransitions,lead
               className={`px-3 py-1.5 text-xs rounded-full font-medium ${activeSection===t?"bg-zinc-700 text-white":"bg-zinc-800/60 text-zinc-500 hover:text-zinc-300"}`}>{t}</button>
           ))}
         </div>
-        <button onClick={()=>setShowImport(true)} className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 hover:border-amber-500 text-zinc-300 text-xs font-medium rounded-lg transition-colors">
-          ⬆ Bulk Import CSV
-        </button>
+        <div className="flex gap-2">
+          <button onClick={()=>setShowImport(true)} className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 hover:border-amber-500 text-zinc-300 text-xs font-medium rounded-lg transition-colors">
+            ⬆ Bulk Import CSV
+          </button>
+          <button onClick={handleUploadAllToStorage} disabled={uploadState?.running}
+            className="px-3 py-1.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors">
+            ☁ Upload All to Storage
+          </button>
+        </div>
       </div>
+      {uploadState&&(
+        <div className="mb-4 p-3 bg-zinc-900 border border-zinc-800 rounded-lg space-y-2">
+          {uploadState.running ? (
+            <div className="flex items-center gap-3">
+              <span className="text-violet-400 text-xs animate-pulse">☁ Uploading {uploadState.current}… ({uploadState.done}/{uploadState.total})</span>
+              <div className="flex-1 bg-zinc-800 rounded-full h-1.5">
+                <div className="bg-violet-500 h-1.5 rounded-full transition-all" style={{width:`${(uploadState.done/uploadState.total)*100}%`}}/>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between">
+              <span className="text-emerald-400 text-xs">✅ Done — {uploadState.total - uploadState.errors.length}/{uploadState.total} clips uploaded to Supabase Storage</span>
+              <button onClick={()=>setUploadState(null)} className="text-zinc-500 text-xs hover:text-zinc-300">✕</button>
+            </div>
+          )}
+          {uploadState.errors.length>0&&(
+            <div className="text-red-400 text-xs space-y-0.5">
+              {uploadState.errors.map((e,i)=><div key={i}>❌ {e}</div>)}
+            </div>
+          )}
+        </div>
+      )}
       <FilterBar tagSet={tagSet} setTagSet={setTagSet} search={search} setSearch={setSearch} placeholder="Search ID, text, descriptor or speaker..."/>
       {/* Combined tag + speaker filter row */}
       {allSpeakerNames.length>0&&(
@@ -847,8 +900,6 @@ function ResultCard({ result, hookText, leadText, bodyText, ctaText, onOverride,
         <Tag tag={result.hookTag}/>
         {isManual&&result.valid&&<span className="text-xs bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1.5 py-0.5 rounded-full shrink-0">➡ In Tracker</span>}
         {isManual&&!result.valid&&<span className="text-xs bg-zinc-700/40 text-zinc-400 border border-zinc-600/30 px-1.5 py-0.5 rounded-full shrink-0">Manual</span>}
-        <span className="text-xs text-zinc-500 shrink-0" title="Date Validated">📅 {result.validatedAt ? fmtDate(result.validatedAt) : "—"}</span>
-        {(result.manual&&result.valid||result.addedToTrackerAt)&&<span className="text-xs text-amber-400/70 shrink-0" title="Date Added to Tracker">🗂 {result.addedToTrackerAt ? fmtDate(result.addedToTrackerAt) : "—"}</span>}
         {isReviewed&&!isManual&&<span className="text-xs bg-teal-500/20 text-teal-400 border border-teal-500/30 px-1.5 py-0.5 rounded-full shrink-0">✓ Reviewed</span>}
 
         {/* Reason */}
@@ -881,6 +932,24 @@ function ResultCard({ result, hookText, leadText, bodyText, ctaText, onOverride,
         <button onClick={()=>setExpanded(v=>!v)} className="text-xs text-zinc-500 hover:text-zinc-200 transition-colors shrink-0 whitespace-nowrap">
           {expanded?"Hide ▲":"Read ▼"}
         </button>
+      </div>
+
+      {/* Date bar — always visible */}
+      <div className="flex items-center gap-4 px-3 pb-2 border-t border-zinc-700/20 pt-2">
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-zinc-600 uppercase tracking-widest font-semibold">Date Validated</span>
+          <span className="text-xs text-zinc-300 font-mono">{result.validatedAt ? fmtDate(result.validatedAt) : "—"}</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-zinc-600 uppercase tracking-widest font-semibold">In Tracker</span>
+          <span className={`text-xs font-mono ${result.manual&&result.valid ? "text-amber-400" : "text-zinc-600"}`}>{result.manual&&result.valid ? "Yes" : "No"}</span>
+        </div>
+        {result.manual&&result.valid&&(
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-zinc-600 uppercase tracking-widest font-semibold">Date Added to Tracker</span>
+            <span className="text-xs text-amber-400 font-mono">{result.addedToTrackerAt ? fmtDate(result.addedToTrackerAt) : "—"}</span>
+          </div>
+        )}
       </div>
 
       {expanded&&(
@@ -2410,6 +2479,11 @@ function StitchTab({ combos, validationStore, preHooks, hooks, transitions, lead
       const asset = assetMap[slot.id];
       if (file) {
         await ffmpeg.writeFile(fname, await fetchFile(file));
+      } else if (asset?.storagePath) {
+        const signedUrl = await getStorageSignedUrl(asset.storagePath);
+        const resp = await fetch(signedUrl);
+        if (!resp.ok) throw new Error(`Storage fetch failed for ${slot.id}: HTTP ${resp.status}`);
+        await ffmpeg.writeFile(fname, new Uint8Array(await resp.arrayBuffer()));
       } else if (asset?.driveUrl) {
         const resp = await fetch(`/api/proxy?url=${encodeURIComponent(asset.driveUrl)}`);
         if (!resp.ok) throw new Error(`Failed to download ${slot.id}: HTTP ${resp.status}`);
@@ -2658,6 +2732,38 @@ function getSupabase() {
   const key = localStorage.getItem("avs_supabase_key");
   if (!url || !key) return null;
   return { url, key };
+}
+
+async function uploadClipToStorage(clientId, assetId, driveUrl) {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not connected — check Admin settings.");
+  const resp = await fetch(`/api/proxy?url=${encodeURIComponent(driveUrl)}`);
+  if (!resp.ok) throw new Error(`Download failed: HTTP ${resp.status}`);
+  const ct = resp.headers.get("content-type") || "";
+  if (ct.includes("text/html")) throw new Error(`Drive returned HTML — check sharing is "Anyone with the link".`);
+  const blob = await resp.blob();
+  const ext = ct.includes("quicktime") ? "mov" : "mp4";
+  const path = `${clientId}/${assetId}.${ext}`;
+  const up = await fetch(`${sb.url}/storage/v1/object/clips/${path}`, {
+    method: "POST",
+    headers: { "apikey": sb.key, "Authorization": `Bearer ${sb.key}`, "Content-Type": blob.type || "video/mp4", "x-upsert": "true" },
+    body: blob,
+  });
+  if (!up.ok) { const e = await up.text(); throw new Error(e); }
+  return path;
+}
+
+async function getStorageSignedUrl(storagePath) {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase not connected.");
+  const resp = await fetch(`${sb.url}/storage/v1/object/sign/clips/${storagePath}`, {
+    method: "POST",
+    headers: { "apikey": sb.key, "Authorization": `Bearer ${sb.key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ expiresIn: 3600 }),
+  });
+  if (!resp.ok) throw new Error(`Could not get signed URL for ${storagePath}`);
+  const data = await resp.json();
+  return `${sb.url}/storage/v1${data.signedURL}`;
 }
 
 async function sbFetch(path, options={}) {
