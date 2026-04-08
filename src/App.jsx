@@ -1079,6 +1079,7 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
       return {...prev,[key]:{...existing,valid:newValid,manual:true,reviewed:true,
         reason:existing.manual?existing.reason:`Original AI verdict: "${existing.reason}" — manually overridden.`}};
     });
+    if (newValid && validFilter==="Invalid") setValidFilter("All");
   };
 
   const handleMarkReviewed=(key)=>{
