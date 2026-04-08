@@ -847,8 +847,8 @@ function ResultCard({ result, hookText, leadText, bodyText, ctaText, onOverride,
         <Tag tag={result.hookTag}/>
         {isManual&&result.valid&&<span className="text-xs bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1.5 py-0.5 rounded-full shrink-0">➡ In Tracker</span>}
         {isManual&&!result.valid&&<span className="text-xs bg-zinc-700/40 text-zinc-400 border border-zinc-600/30 px-1.5 py-0.5 rounded-full shrink-0">Manual</span>}
-        {result.validatedAt&&<span className="text-xs text-zinc-500 shrink-0" title="Date Validated">📅 {fmtDate(result.validatedAt)}</span>}
-        {result.addedToTrackerAt&&<span className="text-xs text-amber-400/70 shrink-0" title="Date Added to Tracker">🗂 {fmtDate(result.addedToTrackerAt)}</span>}
+        <span className="text-xs text-zinc-500 shrink-0" title="Date Validated">📅 {result.validatedAt ? fmtDate(result.validatedAt) : "—"}</span>
+        {(result.manual&&result.valid||result.addedToTrackerAt)&&<span className="text-xs text-amber-400/70 shrink-0" title="Date Added to Tracker">🗂 {result.addedToTrackerAt ? fmtDate(result.addedToTrackerAt) : "—"}</span>}
         {isReviewed&&!isManual&&<span className="text-xs bg-teal-500/20 text-teal-400 border border-teal-500/30 px-1.5 py-0.5 rounded-full shrink-0">✓ Reviewed</span>}
 
         {/* Reason */}
@@ -997,6 +997,7 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
   const [resSpeakerFilter,setResSpeakerFilter]=useState("All");
   const [resSearch,setResSearch]=useState("");
   const [validFilter,setValidFilter]=useState("All");
+  const [sortBy,setSortBy]=useState("newest");
   const [selectedResultKeys,setSelectedResultKeys]=useState(new Set());
 
   // Pre-hooks use their OWN tag filter — independent of scopeTagSet
@@ -1151,6 +1152,9 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
     else if(validFilter==="Archived")  matchValid=isArchived;
     else if(validFilter==="Unreviewed") matchValid=!r.reviewed&&!inTracker&&!isArchived;
     return matchTag&&matchSpeaker&&matchSearch&&matchValid;
+  }).sort((a,b)=>{
+    const ts = r => sortBy.includes("tracker") ? (r.addedToTrackerAt||"") : (r.validatedAt||"");
+    return sortBy==="oldest"||sortBy==="tracker-oldest" ? ts(a).localeCompare(ts(b)) : ts(b).localeCompare(ts(a));
   });
 
   const totalCombos=allTasks.length;
@@ -1482,6 +1486,13 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
                 </button>
               ))}
             </div>
+            <select value={sortBy} onChange={e=>setSortBy(e.target.value)}
+              className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-300 focus:outline-none focus:border-amber-500 ml-auto shrink-0">
+              <option value="newest">📅 Validated: Newest</option>
+              <option value="oldest">📅 Validated: Oldest</option>
+              <option value="tracker-newest">🗂 Tracker: Newest</option>
+              <option value="tracker-oldest">🗂 Tracker: Oldest</option>
+            </select>
           </div>
           {/* Count + select-all + clear/restart row */}
           <div className="flex items-center gap-2 mb-3 flex-wrap">
@@ -1672,9 +1683,9 @@ function ComboRow({ combo, vr, assetMap, onToggle, onSetVideoStatus, onUrlChange
         <Tag tag={combo.hookTag}/>
         <FilenameField value={combo.filename||combo.autoFilename} onChange={v=>onFilenameChange(combo.key,v)}/>
         {combo.date&&vs&&<span className="text-xs text-zinc-500 whitespace-nowrap ml-1">{combo.date}</span>}
-        {vr?.validatedAt&&<span className="text-xs text-zinc-500 whitespace-nowrap" title="Date Validated">📅 {fmtDate(vr.validatedAt)}</span>}
+        {vr&&<span className="text-xs text-zinc-500 whitespace-nowrap" title="Date Validated">📅 {vr.validatedAt ? fmtDate(vr.validatedAt) : "—"}</span>}
         {vr?.manual&&vr?.valid&&<span className="text-xs bg-amber-500/15 text-amber-400 border border-amber-500/25 px-1.5 py-0.5 rounded-full whitespace-nowrap">In Tracker</span>}
-        {vr?.addedToTrackerAt&&<span className="text-xs text-amber-400/70 whitespace-nowrap" title="Date Added to Tracker">🗂 {fmtDate(vr.addedToTrackerAt)}</span>}
+        {vr?.manual&&vr?.valid&&<span className="text-xs text-amber-400/70 whitespace-nowrap" title="Date Added to Tracker">🗂 {vr.addedToTrackerAt ? fmtDate(vr.addedToTrackerAt) : "—"}</span>}
         {/* Accordion toggle */}
         <button onClick={()=>setOpen(v=>!v)}
           className={`ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium transition-all
@@ -1784,6 +1795,7 @@ function TrackerTab({ combos, onToggle, onSetVideoStatus, onUrlChange, onFilenam
   const [statusFilter,setStatusFilter]=useState("All");
   const [speakerFilter,setSpeakerFilter]=useState("All");
   const [selectedTrackerKeys,setSelectedTrackerKeys]=useState(new Set());
+  const [trackerSortBy,setTrackerSortBy]=useState("newest");
   const toggleTrackerSelect=(key,val)=>setSelectedTrackerKeys(prev=>{const n=new Set(prev);val?n.add(key):n.delete(key);return n;});
 
   const vrMap=useMemo(()=>{ const m={}; Object.values(validationStore).forEach(r=>{m[`${r.hookId}+${r.leadId}`]=r;}); return m; },[validationStore]);
@@ -1846,6 +1858,14 @@ function TrackerTab({ combos, onToggle, onSetVideoStatus, onUrlChange, onFilenam
       ||(statusFilter==="Valid"&&vr?.valid===true)
       ||(statusFilter==="Invalid"&&vr?.valid===false);
     return matchTag&&matchSearch&&matchPreHook&&matchHook&&matchLead&&matchBody&&matchSpeaker&&matchStatus;
+  }).sort((a,b)=>{
+    const vra=vrMap[`${a.hookId}+${a.leadId}`];
+    const vrb=vrMap[`${b.hookId}+${b.leadId}`];
+    const ts=trackerSortBy.includes("tracker")
+      ? (c,v)=>v?.addedToTrackerAt||""
+      : (c,v)=>v?.validatedAt||"";
+    const ta=ts(a,vra), tb=ts(b,vrb);
+    return trackerSortBy==="oldest"||trackerSortBy==="tracker-oldest" ? ta.localeCompare(tb) : tb.localeCompare(ta);
   });
 
   const doneCombos=baseCombos.filter(c=>c.videoStatus==="approved").length;
@@ -1904,7 +1924,16 @@ function TrackerTab({ combos, onToggle, onSetVideoStatus, onUrlChange, onFilenam
           </select>
         </div>
       </div>
-      <FilterBar tagSet={tagSet} setTagSet={setTagSet} search={search} setSearch={setSearch}/>
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <FilterBar tagSet={tagSet} setTagSet={setTagSet} search={search} setSearch={setSearch}/>
+        <select value={trackerSortBy} onChange={e=>setTrackerSortBy(e.target.value)}
+          className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-300 focus:outline-none focus:border-amber-500 shrink-0">
+          <option value="newest">📅 Validated: Newest</option>
+          <option value="oldest">📅 Validated: Oldest</option>
+          <option value="tracker-newest">🗂 Tracker: Newest</option>
+          <option value="tracker-oldest">🗂 Tracker: Oldest</option>
+        </select>
+      </div>
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <input type="checkbox"
