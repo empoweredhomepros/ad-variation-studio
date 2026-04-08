@@ -595,6 +595,22 @@ function LibraryTab({ preHooks,setPreHooks,hooks,transitions,setTransitions,lead
   const [showImport,setShowImport]=useState(false);
   const [selectedIds,setSelectedIds]=useState(new Set());
   const [uploadState,setUploadState]=useState(null); // null | {running,total,done,current,errors[]}
+  const ffmpegRef = useRef(null);
+  const [ffmpegLoaded, setFfmpegLoaded] = useState(false);
+
+  const ensureFFmpeg = async () => {
+    if (!ffmpegRef.current) { const { FFmpeg } = await import("@ffmpeg/ffmpeg"); ffmpegRef.current = new FFmpeg(); }
+    if (!ffmpegLoaded) {
+      const { toBlobURL } = await import("@ffmpeg/util");
+      const base = "https://unpkg.com/@ffmpeg/core@0.12.9/dist/esm";
+      await ffmpegRef.current.load({
+        coreURL: await toBlobURL(`${base}/ffmpeg-core.js`, "text/javascript"),
+        wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`, "application/wasm"),
+      });
+      setFfmpegLoaded(true);
+    }
+    return ffmpegRef.current;
+  };
 
   const toggleSelect=(key,val)=>setSelectedIds(prev=>{ const n=new Set(prev); val?n.add(key):n.delete(key); return n; });
   const toggleSelectAll=(label,items)=>{
@@ -654,11 +670,47 @@ function LibraryTab({ preHooks,setPreHooks,hooks,transitions,setTransitions,lead
     });
     if (!toUpload.length) { alert("All clips with Drive URLs are already in storage."); return; }
     setUploadState({ running: true, total: toUpload.length, done: 0, current: "", errors: [] });
+
+    const vf = "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,fps=30,format=yuv420p";
+    const af = "aresample=44100,aformat=channel_layouts=stereo";
+    let ffmpeg;
+    try { ffmpeg = await ensureFFmpeg(); } catch(e) { setUploadState(s=>({...s,running:false,errors:[`FFmpeg failed to load: ${e.message}`]})); return; }
+
     for (let i = 0; i < toUpload.length; i++) {
       const asset = toUpload[i];
       setUploadState(s => ({ ...s, done: i, current: asset.id }));
       try {
-        const path = await uploadClipToStorage(clientId, asset.id, asset.driveUrl);
+        // Download raw clip
+        const resp = await fetch(`/api/proxy?url=${encodeURIComponent(asset.driveUrl)}`);
+        if (!resp.ok) throw new Error(`Download failed: HTTP ${resp.status}`);
+        const ct = resp.headers.get("content-type") || "";
+        if (ct.includes("text/html")) throw new Error(`Drive returned HTML — check sharing settings`);
+        const raw = new Uint8Array(await resp.arrayBuffer());
+
+        // Normalize with FFmpeg
+        const rawName = `raw_${asset.id}.mp4`;
+        const normName = `norm_${asset.id}.mp4`;
+        await ffmpeg.writeFile(rawName, raw);
+        let r = await ffmpeg.exec(["-i", rawName, "-vf", vf, "-c:v", "libx264", "-preset", "ultrafast", "-map", "0:v:0", "-map", "0:a:0", "-c:a", "aac", "-ar", "44100", "-ac", "2", "-af", af, normName]);
+        if (r !== 0) {
+          r = await ffmpeg.exec(["-i", rawName, "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-vf", vf, "-c:v", "libx264", "-preset", "ultrafast", "-map", "0:v:0", "-map", "1:a", "-c:a", "aac", "-ar", "44100", "-ac", "2", "-af", af, "-shortest", normName]);
+          if (r !== 0) throw new Error(`Normalization failed`);
+        }
+        try { await ffmpeg.deleteFile(rawName); } catch {}
+
+        // Upload normalized file to Supabase Storage
+        const normData = await ffmpeg.readFile(normName);
+        try { await ffmpeg.deleteFile(normName); } catch {}
+        const blob = new Blob([normData], { type: "video/mp4" });
+        const path = `${clientId}/${asset.id}.mp4`;
+        const sb = getSupabase();
+        const up = await fetch(`${sb.url}/storage/v1/object/clips/${path}`, {
+          method: "POST",
+          headers: { "apikey": sb.key, "Authorization": `Bearer ${sb.key}`, "Content-Type": "video/mp4", "x-upsert": "true" },
+          body: blob,
+        });
+        if (!up.ok) { const e = await up.text(); throw new Error(e); }
+
         sections.forEach(({ label, setter }) => {
           if (label === asset._label) setter(prev => prev.map(a => a.id === asset.id ? { ...a, storagePath: path } : a));
         });
@@ -694,7 +746,7 @@ function LibraryTab({ preHooks,setPreHooks,hooks,transitions,setTransitions,lead
         <div className="mb-4 p-3 bg-zinc-900 border border-zinc-800 rounded-lg space-y-2">
           {uploadState.running ? (
             <div className="flex items-center gap-3">
-              <span className="text-violet-400 text-xs animate-pulse">☁ Uploading {uploadState.current}… ({uploadState.done}/{uploadState.total})</span>
+              <span className="text-violet-400 text-xs animate-pulse">☁ Normalizing & uploading {uploadState.current}… ({uploadState.done}/{uploadState.total})</span>
               <div className="flex-1 bg-zinc-800 rounded-full h-1.5">
                 <div className="bg-violet-500 h-1.5 rounded-full transition-all" style={{width:`${(uploadState.done/uploadState.total)*100}%`}}/>
               </div>
