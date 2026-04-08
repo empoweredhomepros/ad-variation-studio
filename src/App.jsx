@@ -742,6 +742,12 @@ function LibraryTab({ preHooks,setPreHooks,hooks,transitions,setTransitions,lead
             className="px-3 py-1.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors">
             ☁ Upload All to Storage
           </button>
+          <button onClick={()=>{
+            if(!confirm("Clear all storage paths? This lets you re-upload from scratch without deleting files from Supabase.")) return;
+            sections.forEach(({setter})=>setter(prev=>prev.map(a=>({...a,storagePath:undefined}))));
+          }} className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 text-zinc-400 text-xs font-medium rounded-lg transition-colors">
+            ↺ Reset Paths
+          </button>
         </div>
       </div>
       {uploadState&&(
