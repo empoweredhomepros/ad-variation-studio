@@ -1135,7 +1135,7 @@ function ValidateTab({ preHooks,hooks,transitions,leads,bodies,ctas,speakers,val
     const inTracker=r.manual&&r.valid;
     const isArchived=!!r.archived;
     let matchValid=false;
-    if(validFilter==="All")         matchValid=!inTracker&&!isArchived;
+    if(validFilter==="All")         matchValid=!isArchived;
     else if(validFilter==="Valid")   matchValid=r.valid===true&&!inTracker&&!isArchived;
     else if(validFilter==="Invalid") matchValid=r.valid===false&&!isArchived;
     else if(validFilter==="InTracker") matchValid=inTracker;
